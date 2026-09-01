@@ -926,11 +926,21 @@ export default function UsuariosPage() {
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"
                 >
                   <option value="">Selecciona un rol...</option>
-                  <option value="OPERADOR">OPERADOR (Gestión de Stock)</option>
-                  <option value="VENTAS">VENTAS (Cotizaciones y Facturación)</option>
-                  <option value="COMPRAS">COMPRAS (Proveedores e Insumos)</option>
-                  <option value="FINANZAS">FINANZAS (Tesorería y Cajas)</option>
-                  <option value="ADMIN">ADMIN (Acceso Total)</option>
+                  {roles && roles.length > 0 ? (
+                    roles.map((r: any) => (
+                      <option key={r.id} value={r.id}>
+                        {r.name} {r.description ? `(${r.description})` : ''}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="OPERADOR">OPERADOR (Gestión de Stock)</option>
+                      <option value="VENTAS">VENTAS (Cotizaciones y Facturación)</option>
+                      <option value="COMPRAS">COMPRAS (Proveedores e Insumos)</option>
+                      <option value="FINANZAS">FINANZAS (Tesorería y Cajas)</option>
+                      <option value="ADMIN">ADMIN (Acceso Total)</option>
+                    </>
+                  )}
                 </select>
               </div>
 

@@ -112,6 +112,21 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
       return;
     }
 
+    // Buscar rol por ID o por Nombre (para soportar tanto UUID como nombres de rol)
+    let role = await prisma.role.findFirst({
+      where: {
+        OR: [
+          { id: data.roleId },
+          { name: data.roleId },
+        ],
+      },
+    });
+
+    if (!role) {
+      res.status(400).json({ success: false, message: 'El rol de seguridad seleccionado no es válido' });
+      return;
+    }
+
     const salt = await bcrypt.genSalt(10);
     const passwordHash = await bcrypt.hash(data.password, salt);
 
@@ -121,7 +136,7 @@ export async function createUser(req: AuthRequest, res: Response, next: NextFunc
         fullName: data.fullName,
         phone: data.phone,
         passwordHash,
-        roleId: data.roleId,
+        roleId: role.id,
       },
       select: {
         id: true,
@@ -155,7 +170,19 @@ export async function updateUser(req: AuthRequest, res: Response, next: NextFunc
     const updatePayload: any = {};
     if (data.fullName) updatePayload.fullName = data.fullName;
     if (data.phone !== undefined) updatePayload.phone = data.phone;
-    if (data.roleId) updatePayload.roleId = data.roleId;
+    if (data.roleId) {
+      const role = await prisma.role.findFirst({
+        where: {
+          OR: [
+            { id: data.roleId },
+            { name: data.roleId },
+          ],
+        },
+      });
+      if (role) {
+        updatePayload.roleId = role.id;
+      }
+    }
     if (data.isActive !== undefined) updatePayload.isActive = data.isActive;
     if (data.password) {
       const salt = await bcrypt.genSalt(10);

@@ -1,6 +1,11 @@
 export function getApiBaseUrl(): string {
   if (process.env.NEXT_PUBLIC_API_URL) {
-    return process.env.NEXT_PUBLIC_API_URL.replace(/\/+$/, '');
+    let url = process.env.NEXT_PUBLIC_API_URL.trim().replace(/\/+$/, '');
+    // Si la URL no termina en /api/v1, agregarlo automáticamente para evitar errores
+    if (!url.endsWith('/api/v1')) {
+      url = `${url}/api/v1`;
+    }
+    return url;
   }
 
   if (typeof window !== 'undefined') {
