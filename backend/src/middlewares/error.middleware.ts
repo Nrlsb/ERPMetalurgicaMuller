@@ -10,9 +10,10 @@ export function errorHandler(
   console.error('🔥 Error Global:', err);
 
   if (err instanceof ZodError) {
+    const firstErrorMessage = err.errors[0]?.message || 'Error de validación en los datos enviados';
     res.status(400).json({
       success: false,
-      message: 'Error de validación en los datos enviados',
+      message: firstErrorMessage,
       errors: err.errors.map((e) => ({
         field: e.path.join('.'),
         message: e.message,

@@ -239,7 +239,11 @@ export default function UsuariosPage() {
         setFormData({ fullName: '', email: '', password: '', phone: '', roleId: '' });
         loadData();
       } else {
-        setFormError(res.message || 'Error al registrar el usuario');
+        const errorDetail =
+          res.errors && res.errors.length > 0
+            ? res.errors.map((e: any) => e.message).join('. ')
+            : res.message;
+        setFormError(errorDetail || 'Error al registrar el usuario');
       }
     } catch (err: any) {
       setFormError(err.message || 'Error al registrar el usuario');
