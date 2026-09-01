@@ -15,7 +15,24 @@ app.use(helmetMiddleware);
 // 2. CORS con Credenciales y Orígenes Autorizados
 app.use(
   cors({
-    origin: [config.clientUrl, 'http://localhost:3000', 'http://localhost:3001', 'http://127.0.0.1:3000'],
+    origin: (origin, callback) => {
+      // Permitir peticiones sin origen (como Postman o curl)
+      if (!origin) return callback(null, true);
+
+      const allowedOrigins = [
+        config.clientUrl,
+        'http://localhost:3000',
+        'http://localhost:3001',
+        'http://127.0.0.1:3000',
+        'https://erp-metalurgica-muller.vercel.app',
+      ];
+
+      if (allowedOrigins.includes(origin) || origin.endsWith('.vercel.app')) {
+        return callback(null, true);
+      }
+
+      return callback(null, true);
+    },
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
