@@ -1,0 +1,15 @@
+{
+  "name": "erp-muller",
+  "version": "1.0.0",
+  "description": "Sistema Web ERP a Medida para Muller Juan",
+  "private": true,
+  "scripts": {
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "build:backend": "npm --prefix backend run build",
+    "build:frontend": "npm --prefix frontend run build"
+  },
+  "keywords": ["erp", "nextjs", "express", "prisma", "postgresql"],
+  "author": "Benitez Lucas",
+  "license": "ISC"
+}
