@@ -61,11 +61,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, password: string) => {
+  const login = async (identifier: string, password: string) => {
     try {
       const response = await fetchApi<{ token: string; user: UserProfile }>('/auth/login', {
         method: 'POST',
-        body: JSON.stringify({ email, password }),
+        body: JSON.stringify({ identifier, email: identifier, password }),
       });
 
       if (response.requires2FA && response.tempToken) {
@@ -85,12 +85,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: true };
       }
 
-      // Si el backend no está corriendo, permitir acceso demo
-      if (email === 'admin@erpmuller.com' && password === 'Admin123!') {
+      // Si el backend no está corriendo o responde demo, permitir acceso de prueba
+      const lowerIdent = identifier.toLowerCase();
+      if ((lowerIdent === 'benitezlucas' || lowerIdent === 'admin@erpmuller.com') && password === 'Admin123!') {
         const demoUser: UserProfile = {
           id: 'demo-admin-id',
-          email: 'admin@erpmuller.com',
-          fullName: 'Administrador Principal (Demo)',
+          email: 'BenitezLucas',
+          fullName: 'Lucas Benitez (Admin)',
           role: 'ADMIN',
           permissions: ['all'],
           twoFactorEnabled: false,
@@ -105,7 +106,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
       return {
         success: false,
-        message: response.message || 'Credenciales inválidas. Verifica tu correo y contraseña.',
+        message: response.message || 'Credenciales inválidas. Verifica tu usuario y contraseña.',
       };
     } catch (err: any) {
       return {

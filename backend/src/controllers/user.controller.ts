@@ -7,7 +7,7 @@ import { logSecurityEvent } from '../lib/audit';
 import { strongPasswordRegex, strongPasswordMessage } from './auth.controller';
 
 const createUserSchema = z.object({
-  email: z.string().email('Email inválido'),
+  email: z.string().min(2, 'Usuario o email requerido'),
   fullName: z.string().min(2, 'El nombre debe tener al menos 2 caracteres'),
   password: z.string().min(8, 'Mínimo 8 caracteres').regex(strongPasswordRegex, strongPasswordMessage),
   phone: z.string().optional(),

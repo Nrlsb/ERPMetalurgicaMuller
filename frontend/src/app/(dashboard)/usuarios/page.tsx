@@ -886,12 +886,12 @@ export default function UsuariosPage() {
 
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1">
-                  Correo Electrónico *
+                  Usuario / Identificador *
                 </label>
                 <input
-                  type="email"
+                  type="text"
                   required
-                  placeholder="marcelo@erpmuller.com"
+                  placeholder="Ej: BenitezLucas o marcelo@erpmuller.com"
                   value={formData.email}
                   onChange={(e) => setFormData({ ...formData, email: e.target.value })}
                   className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs text-white focus:border-emerald-500 focus:outline-none"

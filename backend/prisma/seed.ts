@@ -98,18 +98,23 @@ async function main() {
   const passwordHash = await bcrypt.hash('Admin123!', salt);
 
   const adminUser = await prisma.user.upsert({
-    where: { email: 'admin@erpmuller.com' },
-    update: {},
+    where: { email: 'BenitezLucas' },
+    update: {
+      fullName: 'Lucas Benitez',
+      passwordHash,
+      roleId: createdRoles['ADMIN'].id,
+      isActive: true,
+    },
     create: {
-      email: 'admin@erpmuller.com',
-      fullName: 'Administrador Principal',
+      email: 'BenitezLucas',
+      fullName: 'Lucas Benitez',
       passwordHash,
       phone: '+54 11 9999-8888',
       roleId: createdRoles['ADMIN'].id,
       isActive: true,
     },
   });
-  console.log('✅ Usuario Administrador creado: admin@erpmuller.com (Password: Admin123!)');
+  console.log('✅ Usuario Administrador creado: BenitezLucas (Password: Admin123!)');
 
   // 5. Unidades de Medida
   const units = [

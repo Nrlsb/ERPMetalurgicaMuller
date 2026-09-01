@@ -4,7 +4,7 @@ import React, { useState } from 'react';
 import { useRouter } from 'next/navigation';
 import {
   Lock,
-  Mail,
+  User,
   ShieldCheck,
   ArrowRight,
   AlertCircle,
@@ -19,7 +19,7 @@ import { useAuth } from '@/context/AuthContext';
 import Logo from '@/components/brand/Logo';
 
 export default function LoginPage() {
-  const [email, setEmail] = useState('admin@erpmuller.com');
+  const [username, setUsername] = useState('BenitezLucas');
   const [password, setPassword] = useState('Admin123!');
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -53,7 +53,7 @@ export default function LoginPage() {
           setError(res.message || 'Código 2FA incorrecto o expirado');
         }
       } else {
-        const res = await login(email, password);
+        const res = await login(username, password);
         if (res.requires2FA && res.tempToken) {
           setTempToken(res.tempToken);
           setIs2FAStage(true);
@@ -78,8 +78,8 @@ export default function LoginPage() {
     setError(null);
   };
 
-  const setCredentials = (roleEmail: string, rolePass: string) => {
-    setEmail(roleEmail);
+  const setCredentials = (userIdent: string, rolePass: string) => {
+    setUsername(userIdent);
     setPassword(rolePass);
     setError(null);
     setIs2FAStage(false);
@@ -122,16 +122,16 @@ export default function LoginPage() {
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
                 <label className="block text-xs font-semibold text-slate-300 mb-1.5">
-                  Correo Electrónico
+                  Usuario o Nombre
                 </label>
                 <div className="relative">
-                  <Mail className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                  <User className="w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
                   <input
-                    type="email"
-                    value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    type="text"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
                     required
-                    placeholder="usuario@erpmuller.com"
+                    placeholder="Ej: BenitezLucas"
                     className="w-full bg-slate-950/80 border border-slate-700/80 rounded-xl pl-10 pr-4 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 focus:ring-1 focus:ring-sky-500 transition-all"
                   />
                 </div>
@@ -243,21 +243,21 @@ export default function LoginPage() {
               <div className="flex gap-2">
                 <button
                   type="button"
-                  onClick={() => setCredentials('admin@erpmuller.com', 'Admin123!')}
+                  onClick={() => setCredentials('BenitezLucas', 'Admin123!')}
                   className="flex-1 py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
                 >
-                  👑 Admin
+                  👑 BenitezLucas
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCredentials('operador@erpmuller.com', 'Admin123!')}
+                  onClick={() => setCredentials('operador', 'Admin123!')}
                   className="flex-1 py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
                 >
                   📦 Operador
                 </button>
                 <button
                   type="button"
-                  onClick={() => setCredentials('ventas@erpmuller.com', 'Admin123!')}
+                  onClick={() => setCredentials('ventas', 'Admin123!')}
                   className="flex-1 py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
                 >
                   🛒 Ventas

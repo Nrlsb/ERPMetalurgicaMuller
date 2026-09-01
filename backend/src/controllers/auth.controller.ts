@@ -16,7 +16,9 @@ export const strongPasswordMessage =
   'La contraseña debe tener al menos 8 caracteres e incluir al menos una mayúscula, una minúscula, un número y un símbolo especial (!@#$%^&*).';
 
 const loginSchema = z.object({
-  email: z.string().email('Formato de correo electrónico inválido'),
+  email: z.string().optional(),
+  username: z.string().optional(),
+  identifier: z.string().optional(),
   password: z.string().min(1, 'La contraseña es requerida'),
 });
 
@@ -27,10 +29,23 @@ const changePasswordSchema = z.object({
 
 export async function login(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const { email, password } = loginSchema.parse(req.body);
+    const parsed = loginSchema.parse(req.body);
+    const identifier = (parsed.identifier || parsed.username || parsed.email || '').trim();
 
-    const user = await prisma.user.findUnique({
-      where: { email },
+    if (!identifier) {
+      res.status(400).json({ success: false, message: 'Debe ingresar el usuario o correo electrónico' });
+      return;
+    }
+
+    const password = parsed.password;
+
+    const user = await prisma.user.findFirst({
+      where: {
+        OR: [
+          { email: { equals: identifier, mode: 'insensitive' } },
+          { fullName: { equals: identifier, mode: 'insensitive' } },
+        ],
+      },
       include: {
         role: {
           include: {
@@ -43,11 +58,11 @@ export async function login(req: Request, res: Response, next: NextFunction): Pr
     });
 
     if (!user) {
-      // Registrar intento con correo inexistente
+      // Registrar intento con usuario/correo inexistente
       await logSecurityEvent({
         action: 'LOGIN_FAILED_UNKNOWN_USER',
         module: 'AUTH',
-        details: { emailAttempt: email },
+        details: { loginAttempt: identifier },
         req,
       });
       res.status(401).json({ success: false, message: 'Credenciales inválidas' });
