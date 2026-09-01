@@ -58,6 +58,16 @@ export async function fetchApi<T = any>(
     });
 
     const data = await res.json();
+
+    if (res.status === 401 && typeof window !== 'undefined' && !endpoint.startsWith('/auth/login')) {
+      const currentToken = localStorage.getItem('erp_muller_token');
+      if (currentToken === 'demo-jwt-token-muller-erp') {
+        localStorage.removeItem('erp_muller_token');
+        localStorage.removeItem('erp_muller_user');
+        window.location.href = '/login';
+      }
+    }
+
     return data;
   } catch (error: any) {
     console.warn(`[API] Fallback / Error de conexión para ${endpoint}:`, error.message);
