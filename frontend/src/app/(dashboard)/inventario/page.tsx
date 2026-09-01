@@ -97,6 +97,7 @@ export default function InventarioPage() {
   const { success, error, warning } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
+  const canSeeFinancials = !user?.role || user.role === 'ADMIN' || user.role === 'FINANZAS';
 
   const [activeTab, setActiveTab] = useState<'catalog' | 'movements' | 'alerts'>('catalog');
   const [products, setProducts] = useState<Product[]>([]);
@@ -537,7 +538,7 @@ export default function InventarioPage() {
       </div>
 
       {/* KPI Cards Carousel en Móvil, Grid en Escritorio */}
-      <div className="flex sm:grid sm:grid-cols-2 lg:grid-cols-4 gap-3.5 sm:gap-4 overflow-x-auto snap-x snap-mandatory sm:overflow-visible pb-2 sm:pb-0 -mx-4 px-4 sm:mx-0 sm:px-0 no-scrollbar">
+      <div className={`flex sm:grid sm:grid-cols-2 ${canSeeFinancials ? 'lg:grid-cols-4' : 'lg:grid-cols-2'} gap-3.5 sm:gap-4 overflow-x-auto snap-x snap-mandatory sm:overflow-visible pb-2 sm:pb-0 -mx-4 px-4 sm:mx-0 sm:px-0 no-scrollbar`}>
         <div className="p-4 sm:p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl min-w-[260px] xs:min-w-[280px] sm:min-w-0 flex-shrink-0 snap-center sm:snap-align-none">
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Catálogo Total</span>
@@ -549,31 +550,35 @@ export default function InventarioPage() {
           <p className="text-xs text-slate-500 mt-1">{totalStockUnits.toLocaleString('es-AR')} unidades físicas</p>
         </div>
 
-        <div className="p-4 sm:p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl min-w-[260px] xs:min-w-[280px] sm:min-w-0 flex-shrink-0 snap-center sm:snap-align-none">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valorización al Costo</span>
-            <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
-              <DollarSign className="w-4 h-4" />
+        {canSeeFinancials && (
+          <>
+            <div className="p-4 sm:p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl min-w-[260px] xs:min-w-[280px] sm:min-w-0 flex-shrink-0 snap-center sm:snap-align-none">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valorización al Costo</span>
+                <div className="p-2 bg-emerald-500/10 text-emerald-400 rounded-lg">
+                  <DollarSign className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-emerald-400">
+                ${totalCostValuation.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Capital invertido en stock</p>
             </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-black text-emerald-400">
-            ${totalCostValuation.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-          </div>
-          <p className="text-xs text-slate-500 mt-1">Capital invertido en stock</p>
-        </div>
 
-        <div className="p-4 sm:p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl min-w-[260px] xs:min-w-[280px] sm:min-w-0 flex-shrink-0 snap-center sm:snap-align-none">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valorización de Venta</span>
-            <div className="p-2 bg-purple-500/10 text-purple-400 rounded-lg">
-              <TrendingUp className="w-4 h-4" />
+            <div className="p-4 sm:p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl min-w-[260px] xs:min-w-[280px] sm:min-w-0 flex-shrink-0 snap-center sm:snap-align-none">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-bold text-slate-400 uppercase tracking-wider">Valorización de Venta</span>
+                <div className="p-2 bg-purple-500/10 text-purple-400 rounded-lg">
+                  <TrendingUp className="w-4 h-4" />
+                </div>
+              </div>
+              <div className="text-xl sm:text-2xl font-black text-purple-400">
+                ${totalSaleValuation.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
+              </div>
+              <p className="text-xs text-slate-500 mt-1">Potencial bruto de comercialización</p>
             </div>
-          </div>
-          <div className="text-xl sm:text-2xl font-black text-purple-400">
-            ${totalSaleValuation.toLocaleString('es-AR', { maximumFractionDigits: 0 })}
-          </div>
-          <p className="text-xs text-slate-500 mt-1">Potencial bruto de comercialización</p>
-        </div>
+          </>
+        )}
 
         <div className="p-4 sm:p-5 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl min-w-[260px] xs:min-w-[280px] sm:min-w-0 flex-shrink-0 snap-center sm:snap-align-none">
           <div className="flex items-center justify-between mb-2">
@@ -770,7 +775,9 @@ export default function InventarioPage() {
                       <div>
                         <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">P. Costo</div>
                         <div className="text-xs font-semibold text-slate-300">
-                          ${Number(p.costPrice).toLocaleString('es-AR', { maximumFractionDigits: 2 })}
+                          {canSeeFinancials
+                            ? `$${Number(p.costPrice).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`
+                            : '—'}
                         </div>
                       </div>
 
@@ -853,7 +860,9 @@ export default function InventarioPage() {
                             </div>
                           </td>
                           <td className="p-4 text-right text-xs text-slate-400">
-                            ${Number(p.costPrice).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            {canSeeFinancials
+                              ? `$${Number(p.costPrice).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
+                              : '—'}
                           </td>
                           <td className="p-4 text-right">
                             <div className="font-bold text-white">

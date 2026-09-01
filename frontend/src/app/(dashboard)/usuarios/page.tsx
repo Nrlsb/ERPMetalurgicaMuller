@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import {
   Users,
   Shield,
@@ -182,8 +183,10 @@ export default function UsuariosPage() {
       const res = await fetchApi<UserItem[]>('/users');
       if (res.success && res.data && res.data.length > 0) {
         setUsers(res.data);
-      } else {
+      } else if (currentUser?.role === 'ADMIN' && currentUser?.id === 'demo-admin-id') {
         setUsers(defaultUsers);
+      } else {
+        setUsers([]);
       }
 
       const rolesRes = await fetchApi<any[]>('/users/roles');
@@ -191,7 +194,11 @@ export default function UsuariosPage() {
         setRoles(rolesRes.data);
       }
     } catch (e) {
-      setUsers(defaultUsers);
+      if (currentUser?.role === 'ADMIN' && currentUser?.id === 'demo-admin-id') {
+        setUsers(defaultUsers);
+      } else {
+        setUsers([]);
+      }
     } finally {
       setLoading(false);
     }
@@ -203,15 +210,41 @@ export default function UsuariosPage() {
       const res = await fetchApi<AuditLogItem[]>('/users/audit-logs?limit=50');
       if (res.success && res.data && res.data.length > 0) {
         setAuditLogs(res.data);
-      } else {
+      } else if (currentUser?.role === 'ADMIN' && currentUser?.id === 'demo-admin-id') {
         setAuditLogs(defaultAuditLogs);
+      } else {
+        setAuditLogs([]);
       }
     } catch (e) {
-      setAuditLogs(defaultAuditLogs);
+      if (currentUser?.role === 'ADMIN' && currentUser?.id === 'demo-admin-id') {
+        setAuditLogs(defaultAuditLogs);
+      } else {
+        setAuditLogs([]);
+      }
     } finally {
       setLoadingAudit(false);
     }
   };
+
+  if (currentUser && currentUser.role !== 'ADMIN') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[65vh] text-center px-4 space-y-4">
+        <div className="p-4 rounded-2xl bg-rose-500/10 border border-rose-500/20 text-rose-400">
+          <ShieldAlert className="w-12 h-12" />
+        </div>
+        <h2 className="text-2xl font-bold text-white tracking-tight">Acceso Denegado (403)</h2>
+        <p className="text-sm text-slate-400 max-w-md">
+          No tienes los permisos requeridos para acceder al Centro de Seguridad & Control de Accesos. Esta sección está reservada exclusivamente para Administradores.
+        </p>
+        <Link
+          href="/dashboard"
+          className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white font-semibold text-xs border border-slate-700 transition-colors shadow-lg"
+        >
+          Volver al Dashboard
+        </Link>
+      </div>
+    );
+  }
 
   useEffect(() => {
     loadData();

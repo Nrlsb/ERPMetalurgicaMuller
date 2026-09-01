@@ -29,42 +29,49 @@ const menuItems = [
     href: '/dashboard',
     icon: LayoutDashboard,
     badge: null,
+    roles: ['ADMIN', 'OPERADOR', 'VENTAS', 'COMPRAS', 'FINANZAS'],
   },
   {
     title: 'Inventario & Stock',
     href: '/inventario',
     icon: Package,
     badge: 'Módulo 2',
+    roles: ['ADMIN', 'OPERADOR', 'COMPRAS'],
   },
   {
     title: 'Fabricación & Recetas',
     href: '/fabricacion',
     icon: Factory,
     badge: 'Módulo 6',
+    roles: ['ADMIN', 'OPERADOR'],
   },
   {
     title: 'Ventas & Facturación',
     href: '/ventas',
     icon: ShoppingCart,
     badge: 'Módulo 3',
+    roles: ['ADMIN', 'VENTAS'],
   },
   {
     title: 'Compras & Proveedores',
     href: '/compras',
     icon: Truck,
     badge: 'Módulo 4',
+    roles: ['ADMIN', 'COMPRAS'],
   },
   {
     title: 'Tesorería & Finanzas',
     href: '/finanzas',
     icon: Landmark,
     badge: 'Módulo 5',
+    roles: ['ADMIN', 'FINANZAS'],
   },
   {
     title: 'Usuarios & Roles',
     href: '/usuarios',
     icon: Users,
     badge: 'Módulo 0',
+    roles: ['ADMIN'],
   },
 ];
 
@@ -72,6 +79,11 @@ export default function Sidebar() {
   const pathname = usePathname();
   const { user, logout } = useAuth();
   const { isCollapsed, toggleSidebar, isMobileOpen, closeMobileSidebar } = useSidebar();
+
+  const userRole = user?.role || 'ADMIN';
+  const visibleMenuItems = menuItems.filter(
+    (item) => !item.roles || item.roles.includes(userRole) || userRole === 'ADMIN'
+  );
 
   const renderNavLinks = (isMobile: boolean = false) => (
     <div className={`flex-1 overflow-y-auto px-3 py-4 space-y-1.5 ${!isMobile && isCollapsed ? 'overflow-x-hidden' : ''}`}>
@@ -83,7 +95,7 @@ export default function Sidebar() {
         <div className="w-6 h-[1px] bg-slate-800/80 mx-auto my-2" />
       )}
 
-      {menuItems.map((item) => {
+      {visibleMenuItems.map((item) => {
         const isActive = pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         const collapsedState = !isMobile && isCollapsed;
