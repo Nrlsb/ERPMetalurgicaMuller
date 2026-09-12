@@ -729,7 +729,7 @@ const adjustStockSchema = z.object({
 export async function adjustStock(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
   try {
     const data = adjustStockSchema.parse(req.body);
-    const userId = req.user?.id;
+    const userId = req.user?.userId;
 
     if (data.deltaQuantity === undefined && data.targetStock === undefined) {
       res.status(400).json({
