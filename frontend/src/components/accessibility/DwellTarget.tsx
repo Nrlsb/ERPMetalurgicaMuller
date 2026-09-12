@@ -12,6 +12,7 @@ interface DwellTargetProps {
   style?: React.CSSProperties;
   children: React.ReactNode;
   ariaLabel?: string;
+  title?: string;
   ringColor?: string;
   soundType?: 'success' | 'cancel' | 'warning';
 }
@@ -25,6 +26,7 @@ export default function DwellTarget({
   style,
   children,
   ariaLabel,
+  title,
   ringColor,
   soundType = 'success',
 }: DwellTargetProps) {
@@ -161,6 +163,7 @@ export default function DwellTarget({
       onPointerLeave={handlePointerLeave}
       onKeyDown={handleKeyDown}
       aria-label={ariaLabel}
+      title={title}
       style={style}
       className={`relative select-none outline-none transition-all duration-150 rounded-2xl border flex flex-col items-center justify-center p-4 focus:ring-4 focus:ring-sky-500/50 ${
         disabled ? 'opacity-40 cursor-not-allowed saturate-50' : 'cursor-pointer hover:border-sky-400/60'

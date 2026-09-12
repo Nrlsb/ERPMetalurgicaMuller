@@ -128,6 +128,7 @@ interface Product {
   supplierCode?: string;
   name: string;
   description?: string;
+  imageUrl?: string;
   location?: string;
   category?: { id?: string; name: string };
   categoryId?: string;
@@ -205,6 +206,7 @@ export default function InventarioPage() {
     supplierCode: string;
     name: string;
     description: string;
+    imageUrl: string;
     location: string;
     categoryId: string;
     subcategoryId: string;
@@ -222,6 +224,7 @@ export default function InventarioPage() {
     supplierCode: '',
     name: '',
     description: '',
+    imageUrl: '',
     location: '',
     categoryId: '',
     subcategoryId: '',
@@ -338,6 +341,7 @@ export default function InventarioPage() {
       supplierCode: '',
       name: '',
       description: '',
+      imageUrl: '',
       location: '',
       categoryId: '',
       subcategoryId: '',
@@ -392,6 +396,7 @@ export default function InventarioPage() {
       supplierCode: p.supplierCode || '',
       name: p.name || '',
       description: p.description || '',
+      imageUrl: p.imageUrl || '',
       location: p.location || '',
       categoryId: catId,
       subcategoryId: subCatId,
@@ -426,6 +431,7 @@ export default function InventarioPage() {
         supplierCode: formData.supplierCode.trim() || undefined,
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
+        imageUrl: formData.imageUrl.trim() || undefined,
         location: formData.location.trim() || undefined,
         categoryId: formData.categoryId || undefined,
         subcategoryId: formData.subcategoryId || undefined,
@@ -1547,18 +1553,54 @@ export default function InventarioPage() {
                   </div>
                 </div>
 
+                {/* Imagen del Producto */}
                 <div>
                   <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                    <FileText className="w-3.5 h-3.5 text-slate-400" />
-                    <span>Descripción (Opcional)</span>
+                    <Camera className="w-3.5 h-3.5 text-sky-400" />
+                    <span>Foto / Imagen del Producto (URL para reconocimiento visual)</span>
+                  </label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="url"
+                      value={formData.imageUrl}
+                      onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                      placeholder="https://ejemplo.com/fotos/bomba-paleta.jpg"
+                      className="flex-1 bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono text-xs"
+                    />
+                    {formData.imageUrl && (
+                      <div className="w-11 h-11 rounded-xl bg-slate-950 border border-slate-700 overflow-hidden flex-shrink-0 flex items-center justify-center">
+                        <img
+                          src={formData.imageUrl}
+                          alt="Vista previa"
+                          className="w-full h-full object-contain"
+                          onError={(e) => {
+                            (e.target as HTMLElement).style.display = 'none';
+                          }}
+                        />
+                      </div>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Esta imagen se mostrará en tamaño gigante en el panel adaptado para que Gaspar identifique la pieza visualmente.
+                  </p>
+                </div>
+
+                {/* Texto de Comunicación (Voz Tobii) / Descripción */}
+                <div>
+                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                    <FileText className="w-3.5 h-3.5 text-blue-400" />
+                    <span>Texto de Comunicación (Frase de Voz Tobii) / Descripción</span>
                   </label>
                   <input
                     type="text"
                     value={formData.description}
                     onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                    placeholder="Detalles técnicos, aplicación, notas..."
+                    placeholder="Ej. Bomba a paleta de 15 litros, alcáncenmela por favor"
                     className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all"
                   />
+                  <p className="text-[11px] text-slate-400 mt-1">
+                    Frase que el equipo Tobii TD I-16 leerá en voz alta por sus altavoces cuando Gaspar pulse "Hablar / Comunicar".
+                  </p>
                 </div>
               </div>
 
