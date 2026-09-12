@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Package,
@@ -52,6 +52,68 @@ interface CategoryItem {
   parent?: { id: string; name: string };
   children?: CategoryItem[];
   _count?: { products: number; subProducts?: number };
+}
+
+// Helpers para estructura jerárquica multinivel
+function buildCategoryTree(cats: CategoryItem[]): CategoryItem[] {
+  const map = new Map<string, CategoryItem>();
+  cats.forEach((c) => {
+    map.set(c.id, { ...c, children: [] });
+  });
+
+  const roots: CategoryItem[] = [];
+  map.forEach((c) => {
+    if (c.parentId && map.has(c.parentId)) {
+      map.get(c.parentId)!.children!.push(c);
+    } else if (!c.parentId) {
+      roots.push(c);
+    }
+  });
+  return roots;
+}
+
+function flattenCategoryTree(
+  nodes: CategoryItem[],
+  depth = 0,
+  parentPath = ''
+): { item: CategoryItem; depth: number; fullPath: string }[] {
+  let list: { item: CategoryItem; depth: number; fullPath: string }[] = [];
+  for (const node of nodes) {
+    const fullPath = parentPath ? `${parentPath} > ${node.name}` : node.name;
+    list.push({ item: node, depth, fullPath });
+    if (node.children && node.children.length > 0) {
+      list = list.concat(flattenCategoryTree(node.children, depth + 1, fullPath));
+    }
+  }
+  return list;
+}
+
+function getCategoryPath(catId?: string | null, cats: CategoryItem[] = []): string[] {
+  if (!catId) return [];
+  const path: string[] = [];
+  let current: CategoryItem | undefined = cats.find((c) => c.id === catId);
+  const visited = new Set<string>();
+  while (current && !visited.has(current.id)) {
+    visited.add(current.id);
+    path.unshift(current.name);
+    const parentId = current.parentId;
+    current = parentId ? cats.find((c) => c.id === parentId) : undefined;
+  }
+  return path;
+}
+
+function getTotalCategoryProducts(cat: CategoryItem): number {
+  const direct = (cat._count?.products || 0) + (cat._count?.subProducts || 0);
+  const fromChildren = (cat.children || []).reduce(
+    (acc, child) => acc + getTotalCategoryProducts(child),
+    0
+  );
+  return direct + fromChildren;
+}
+
+function countTotalDescendants(cat: CategoryItem): number {
+  const children = cat.children || [];
+  return children.reduce((acc, ch) => acc + 1 + countTotalDescendants(ch), 0);
 }
 
 interface Product {
@@ -192,11 +254,18 @@ export default function InventarioPage() {
     loadProducts();
   }, [loadProducts]);
 
-  // Categorías principales y subcategorías disponibles
-  const mainCategories = categories.filter((c) => !c.parentId);
-  const selectedParent = mainCategories.find((c) => c.id === formData.categoryId);
-  const availableSubcategories =
-    selectedParent?.children || categories.filter((c) => c.parentId === formData.categoryId);
+  // Estructura de árbol jerárquico multinivel
+  const categoryTree = useMemo(() => buildCategoryTree(categories), [categories]);
+  const flatCategoryTree = useMemo(() => flattenCategoryTree(categoryTree), [categoryTree]);
+  const mainCategories = useMemo(() => categories.filter((c) => !c.parentId), [categories]);
+
+  // Subcategorías disponibles para el producto (todos los descendientes anidados)
+  const availableSubcategories = useMemo(() => {
+    if (!formData.categoryId) return [];
+    const rootNode = categoryTree.find((c) => c.id === formData.categoryId);
+    if (!rootNode || !rootNode.children || rootNode.children.length === 0) return [];
+    return flattenCategoryTree(rootNode.children, 1, rootNode.name);
+  }, [formData.categoryId, categoryTree]);
 
   const handleOpenCreateModal = () => {
     setEditingProduct(null);
@@ -221,10 +290,29 @@ export default function InventarioPage() {
 
   const handleOpenEditModal = (p: Product) => {
     setEditingProduct(p);
-    const catId =
+    let catId =
       p.categoryId || p.category?.id || categories.find((c) => c.name === p.category?.name)?.id || '';
     const subCatId =
       p.subcategoryId || p.subcategory?.id || '';
+
+    // Si tiene subcategoría pero el categoryId no es raíz (o está vacío), encontrar la categoría raíz
+    if (subCatId && (!catId || categories.find((c) => c.id === catId)?.parentId)) {
+      let curr: CategoryItem | undefined = categories.find((c) => c.id === subCatId);
+      const visited = new Set<string>();
+      while (curr && curr.parentId && !visited.has(curr.id)) {
+        visited.add(curr.id);
+        const parentId = curr.parentId;
+        const parent = categories.find((c) => c.id === parentId);
+        if (parent) {
+          curr = parent;
+        } else {
+          break;
+        }
+      }
+      if (curr && !curr.parentId) {
+        catId = curr.id;
+      }
+    }
 
     setFormData({
       sku: p.sku || '',
@@ -355,9 +443,11 @@ export default function InventarioPage() {
         // Si el formulario de producto está abierto, sincronizar la selección
         if (isModalOpen) {
           if (isSub) {
+            const rootPath = getCategoryPath(categoryFormData.parentId, categories);
+            const rootNode = categories.find((c) => c.name === rootPath[0]);
             setFormData((prev) => ({
               ...prev,
-              categoryId: categoryFormData.parentId,
+              categoryId: rootNode ? rootNode.id : prev.categoryId,
               subcategoryId: res.data.id,
             }));
           } else {
@@ -461,6 +551,24 @@ export default function InventarioPage() {
   const criticalProducts = products.filter((p) => p.currentStock <= p.minStock);
   const criticalProductsCount = criticalProducts.length;
 
+  // Mapeo para filtrado que incluye todos los descendientes
+  const matchingCategoryNames = useMemo(() => {
+    if (selectedCategory === 'ALL') return null;
+    const target = categories.find((c) => c.name === selectedCategory);
+    if (!target) return new Set([selectedCategory]);
+
+    const names = new Set<string>([target.name]);
+    const addDescendants = (catId: string) => {
+      const children = categories.filter((c) => c.parentId === catId);
+      for (const ch of children) {
+        names.add(ch.name);
+        addDescendants(ch.id);
+      }
+    };
+    addDescendants(target.id);
+    return names;
+  }, [selectedCategory, categories]);
+
   // Filtros
   const filteredProducts = products.filter((p) => {
     const matchesSearch =
@@ -470,9 +578,9 @@ export default function InventarioPage() {
       (p.location && p.location.toLowerCase().includes(searchTerm.toLowerCase()));
 
     let matchesCategory = true;
-    if (selectedCategory !== 'ALL') {
-      const matchesMainCat = p.category && p.category.name === selectedCategory;
-      const matchesSubCat = p.subcategory && p.subcategory.name === selectedCategory;
+    if (matchingCategoryNames) {
+      const matchesMainCat = p.category && matchingCategoryNames.has(p.category.name);
+      const matchesSubCat = p.subcategory && matchingCategoryNames.has(p.subcategory.name);
       matchesCategory = !!(matchesMainCat || matchesSubCat);
     }
 
@@ -637,21 +745,17 @@ export default function InventarioPage() {
               className="bg-slate-900 border border-slate-800 rounded-xl px-3 py-2 text-xs text-white focus:outline-none focus:border-blue-500 w-full sm:max-w-[220px]"
             >
               <option value="ALL">Todas las Categorías</option>
-              {mainCategories.map((cat) => {
-                const subs = cat.children || [];
-                return (
-                  <React.Fragment key={cat.id}>
-                    <option value={cat.name} className="font-bold text-white bg-slate-900">
-                      📁 {cat.name}
-                    </option>
-                    {subs.map((sub) => (
-                      <option key={sub.id} value={sub.name} className="text-slate-300 bg-slate-900">
-                        &nbsp;&nbsp;&nbsp;↳ {sub.name}
-                      </option>
-                    ))}
-                  </React.Fragment>
-                );
-              })}
+              {flatCategoryTree.map((c) => (
+                <option
+                  key={c.item.id}
+                  value={c.item.name}
+                  className={c.depth === 0 ? 'font-bold text-white bg-slate-900' : 'text-slate-300 bg-slate-900'}
+                >
+                  {'\u00A0'.repeat(c.depth * 3)}
+                  {c.depth === 0 ? '📁 ' : '↳ '}
+                  {c.item.name}
+                </option>
+              ))}
             </select>
           )}
 
@@ -742,12 +846,19 @@ export default function InventarioPage() {
                       <span className="px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 font-medium border border-slate-700/80">
                         {p.category?.name || 'General'}
                       </span>
-                      {p.subcategory?.name && (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[11px] font-medium">
-                          <CornerDownRight className="w-3 h-3" />
-                          {p.subcategory.name}
-                        </span>
-                      )}
+                      {p.subcategory?.name && (() => {
+                        const path = getCategoryPath(p.subcategoryId || p.subcategory?.id, categories);
+                        const subPath = path.length > 1 ? path.slice(1).join(' > ') : p.subcategory.name;
+                        return (
+                          <span
+                            className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[11px] font-medium"
+                            title={`Ruta completa: ${path.join(' > ')}`}
+                          >
+                            <CornerDownRight className="w-3 h-3 shrink-0" />
+                            <span className="truncate max-w-[150px]">{subPath}</span>
+                          </span>
+                        );
+                      })()}
                       {p.location && (
                         <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] font-medium">
                           <MapPin className="w-3 h-3 text-amber-400" />
@@ -851,12 +962,19 @@ export default function InventarioPage() {
                               <span className="px-2.5 py-0.5 rounded-lg bg-slate-800 border border-slate-700 font-semibold text-slate-200">
                                 {p.category?.name || 'General'}
                               </span>
-                              {p.subcategory?.name && (
-                                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[11px] font-medium">
-                                  <CornerDownRight className="w-3 h-3" />
-                                  {p.subcategory.name}
-                                </span>
-                              )}
+                              {p.subcategory?.name && (() => {
+                                const path = getCategoryPath(p.subcategoryId || p.subcategory?.id, categories);
+                                const subPath = path.length > 1 ? path.slice(1).join(' > ') : p.subcategory.name;
+                                return (
+                                  <span
+                                    className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-sky-500/10 border border-sky-500/20 text-sky-400 text-[11px] font-medium"
+                                    title={`Ruta completa: ${path.join(' > ')}`}
+                                  >
+                                    <CornerDownRight className="w-3 h-3 shrink-0" />
+                                    <span className="truncate max-w-[200px]">{subPath}</span>
+                                  </span>
+                                );
+                              })()}
                             </div>
                           </td>
                           <td className="p-4 text-right text-xs text-slate-400">
@@ -1249,7 +1367,7 @@ export default function InventarioPage() {
                             setCategoryFormData({
                               name: '',
                               description: '',
-                              parentId: formData.categoryId,
+                              parentId: formData.subcategoryId || formData.categoryId,
                             });
                             setIsCategoryModalOpen(true);
                           }}
@@ -1275,8 +1393,8 @@ export default function InventarioPage() {
                           : 'Sin subcategoría (General)'}
                       </option>
                       {availableSubcategories.map((sc) => (
-                        <option key={sc.id} value={sc.id}>
-                          ↳ {sc.name}
+                        <option key={sc.item.id} value={sc.item.id}>
+                          {'\u00A0'.repeat(sc.depth * 2)}↳ {sc.item.name}
                         </option>
                       ))}
                     </select>
@@ -1631,9 +1749,30 @@ export default function InventarioPage() {
                     )}
                   </div>
 
+                  {categoryFormData.parentId && (() => {
+                    const parentPath = getCategoryPath(categoryFormData.parentId, categories).join(' > ');
+                    return (
+                      <div className="p-2.5 bg-sky-500/10 border border-sky-500/20 rounded-xl flex items-center justify-between text-xs">
+                        <div className="flex items-center gap-1.5 text-sky-300 min-w-0">
+                          <FolderTree className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+                          <span className="truncate">
+                            Creando dentro de: <strong className="text-white font-bold">{parentPath}</strong>
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => setCategoryFormData({ ...categoryFormData, parentId: '' })}
+                          className="text-xs text-slate-400 hover:text-white px-2 py-0.5 rounded-lg hover:bg-slate-800 transition-colors shrink-0 ml-2"
+                        >
+                          ✕ Quitar
+                        </button>
+                      </div>
+                    );
+                  })()}
+
                   <div>
                     <label className="block text-xs font-semibold text-slate-400 mb-1">
-                      ¿Es Subcategoría de otra? (Categoría Padre)
+                      ¿Es Subcategoría de otra? (Categoría o Subcategoría Padre)
                     </label>
                     <select
                       value={categoryFormData.parentId}
@@ -1643,9 +1782,11 @@ export default function InventarioPage() {
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white focus:outline-none focus:border-sky-500"
                     >
                       <option value="">Ninguna (Es Categoría Principal)</option>
-                      {mainCategories.map((cat) => (
-                        <option key={cat.id} value={cat.id}>
-                          📁 {cat.name}
+                      {flatCategoryTree.map((c) => (
+                        <option key={c.item.id} value={c.item.id}>
+                          {'\u00A0'.repeat(c.depth * 3)}
+                          {c.depth === 0 ? '📁 ' : '↳ '}
+                          {c.item.name}
                         </option>
                       ))}
                     </select>
@@ -1663,7 +1804,7 @@ export default function InventarioPage() {
                       }
                       placeholder={
                         categoryFormData.parentId
-                          ? 'Ej. Filtros de Aceite, Aceites Sintéticos...'
+                          ? 'Ej. Filtros de Aceite, Pistones, Inalámbricos...'
                           : 'Ej. Filtros y Aceites, Frenos, Iluminación...'
                       }
                       className="w-full bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500"
@@ -1729,150 +1870,176 @@ export default function InventarioPage() {
                   </div>
                 ) : (
                   <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
-                    {mainCategories.map((cat) => {
-                      const subs = cat.children || [];
-                      const directCount = cat._count?.products || 0;
-                      const subsProductCount = subs.reduce(
-                        (acc, s) => acc + (s._count?.products || 0) + (s._count?.subProducts || 0),
-                        0
-                      );
-                      const totalCatProducts = directCount + subsProductCount;
-                      const isDeleting = deletingCategoryId === cat.id;
+                    {categoryTree.map((rootCat) => {
+                      const renderNode = (cat: CategoryItem, depth: number): React.ReactNode => {
+                        const children = cat.children || [];
+                        const totalProducts = getTotalCategoryProducts(cat);
+                        const totalDescendants = countTotalDescendants(cat);
+                        const isDeleting = deletingCategoryId === cat.id;
 
-                      return (
-                        <div
-                          key={cat.id}
-                          className="bg-slate-800/40 border border-slate-800 rounded-2xl p-3 space-y-2.5 transition-colors hover:border-slate-700/80"
-                        >
-                          {/* Categoría Principal */}
-                          <div className="flex items-center justify-between">
-                            <div className="flex items-start gap-2.5">
-                              <Folder className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
-                              <div>
-                                <div className="font-bold text-sm text-white flex items-center gap-2">
-                                  <span>{cat.name}</span>
-                                  {subs.length > 0 && (
-                                    <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold">
-                                      {subs.length} subcat.
-                                    </span>
+                        if (depth === 0) {
+                          return (
+                            <div
+                              key={cat.id}
+                              className="bg-slate-800/40 border border-slate-800 rounded-2xl p-3 space-y-2.5 transition-colors hover:border-slate-700/80"
+                            >
+                              {/* Categoría Principal */}
+                              <div className="flex items-center justify-between">
+                                <div className="flex items-start gap-2.5 min-w-0">
+                                  <Folder className="w-4 h-4 text-sky-400 mt-0.5 shrink-0" />
+                                  <div className="min-w-0">
+                                    <div className="font-bold text-sm text-white flex items-center gap-2 flex-wrap">
+                                      <span>{cat.name}</span>
+                                      {children.length > 0 && (
+                                        <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold">
+                                          {totalDescendants} {totalDescendants === 1 ? 'subcat.' : 'subcats.'}
+                                        </span>
+                                      )}
+                                    </div>
+                                    {cat.description && (
+                                      <div className="text-xs text-slate-400 truncate max-w-xs">
+                                        {cat.description}
+                                      </div>
+                                    )}
+                                  </div>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
+                                    {totalProducts} {totalProducts === 1 ? 'producto' : 'productos'}
+                                  </span>
+
+                                  {isAdmin && (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setCategoryFormData({
+                                            name: '',
+                                            description: '',
+                                            parentId: cat.id,
+                                          })
+                                        }
+                                        title="Añadir subcategoría a esta categoría"
+                                        className="p-1.5 rounded-lg border border-sky-500/20 text-sky-400 hover:bg-sky-500/10 hover:border-sky-500/40 transition-colors flex items-center gap-1 text-[11px] font-semibold"
+                                      >
+                                        <Plus className="w-3 h-3" />
+                                        <span className="hidden sm:inline">Subcategoría</span>
+                                      </button>
+
+                                      <button
+                                        onClick={() => handleDeleteCategory(cat.id, cat.name, false)}
+                                        disabled={totalProducts > 0 || isDeleting}
+                                        title={
+                                          totalProducts > 0
+                                            ? 'No se puede eliminar porque contiene productos o subcategorías con productos'
+                                            : 'Eliminar categoría'
+                                        }
+                                        className={`p-1.5 rounded-lg border transition-colors ${
+                                          totalProducts > 0
+                                            ? 'opacity-30 border-transparent text-slate-500 cursor-not-allowed'
+                                            : 'border-rose-500/20 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/40'
+                                        }`}
+                                      >
+                                        <Trash2
+                                          className={`w-3.5 h-3.5 ${isDeleting ? 'animate-spin' : ''}`}
+                                        />
+                                      </button>
+                                    </>
                                   )}
                                 </div>
-                                {cat.description && (
-                                  <div className="text-xs text-slate-400 truncate max-w-xs">
-                                    {cat.description}
+                              </div>
+
+                              {/* Subcategorías anidadas recursivas */}
+                              {children.length > 0 && (
+                                <div className="pl-3 sm:pl-4 pt-1 space-y-1.5 border-l-2 border-slate-700/50 ml-2">
+                                  {children.map((child) => renderNode(child, depth + 1))}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        // Subcategorías de nivel anidado (depth > 0)
+                        return (
+                          <div key={cat.id} className="space-y-1.5">
+                            <div className="flex items-center justify-between p-2 rounded-xl bg-slate-900/70 border border-slate-800/80 hover:bg-slate-900 transition-colors">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <CornerDownRight className="w-3.5 h-3.5 text-sky-400/70 shrink-0" />
+                                <div className="min-w-0">
+                                  <div className="text-xs font-semibold text-slate-200 flex items-center gap-1.5 flex-wrap truncate">
+                                    <span className="truncate">{cat.name}</span>
+                                    {children.length > 0 && (
+                                      <span className="text-[9px] px-1 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 font-semibold">
+                                        {children.length} subcat.
+                                      </span>
+                                    )}
                                   </div>
+                                  {cat.description && (
+                                    <div className="text-[10px] text-slate-400 truncate">
+                                      {cat.description}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+
+                              <div className="flex items-center gap-1.5 shrink-0">
+                                <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700/60">
+                                  {totalProducts} prod.
+                                </span>
+
+                                {isAdmin && (
+                                  <>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        setCategoryFormData({
+                                          name: '',
+                                          description: '',
+                                          parentId: cat.id,
+                                        })
+                                      }
+                                      title={`Añadir subcategoría a "${cat.name}"`}
+                                      className="p-1 rounded-md border border-sky-500/20 text-sky-400 hover:bg-sky-500/10 hover:border-sky-500/40 transition-colors flex items-center gap-0.5 text-[10px] font-semibold"
+                                    >
+                                      <Plus className="w-2.5 h-2.5" />
+                                      <span>Sub</span>
+                                    </button>
+
+                                    <button
+                                      onClick={() => handleDeleteCategory(cat.id, cat.name, true)}
+                                      disabled={totalProducts > 0 || isDeleting}
+                                      title={
+                                        totalProducts > 0
+                                          ? 'No se puede eliminar porque contiene productos o subcategorías con productos'
+                                          : 'Eliminar subcategoría'
+                                      }
+                                      className={`p-1 rounded-md border transition-colors ${
+                                        totalProducts > 0
+                                          ? 'opacity-30 border-transparent text-slate-500 cursor-not-allowed'
+                                          : 'border-rose-500/20 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/40'
+                                      }`}
+                                    >
+                                      <Trash2
+                                        className={`w-3 h-3 ${isDeleting ? 'animate-spin' : ''}`}
+                                      />
+                                    </button>
+                                  </>
                                 )}
                               </div>
                             </div>
 
-                            <div className="flex items-center gap-2">
-                              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-slate-800 text-slate-300 border border-slate-700">
-                                {totalCatProducts} {totalCatProducts === 1 ? 'producto' : 'productos'}
-                              </span>
-
-                              {isAdmin && (
-                                <>
-                                  <button
-                                    type="button"
-                                    onClick={() =>
-                                      setCategoryFormData({
-                                        name: '',
-                                        description: '',
-                                        parentId: cat.id,
-                                      })
-                                    }
-                                    title="Añadir subcategoría a esta categoría"
-                                    className="p-1.5 rounded-lg border border-sky-500/20 text-sky-400 hover:bg-sky-500/10 hover:border-sky-500/40 transition-colors flex items-center gap-1 text-[11px] font-semibold"
-                                  >
-                                    <Plus className="w-3 h-3" />
-                                    <span className="hidden sm:inline">Subcategoría</span>
-                                  </button>
-
-                                  <button
-                                    onClick={() => handleDeleteCategory(cat.id, cat.name, false)}
-                                    disabled={totalCatProducts > 0 || isDeleting}
-                                    title={
-                                      totalCatProducts > 0
-                                        ? 'No se puede eliminar porque contiene productos o subcategorías con productos'
-                                        : 'Eliminar categoría'
-                                    }
-                                    className={`p-1.5 rounded-lg border transition-colors ${
-                                      totalCatProducts > 0
-                                        ? 'opacity-30 border-transparent text-slate-500 cursor-not-allowed'
-                                        : 'border-rose-500/20 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/40'
-                                    }`}
-                                  >
-                                    <Trash2
-                                      className={`w-3.5 h-3.5 ${isDeleting ? 'animate-spin' : ''}`}
-                                    />
-                                  </button>
-                                </>
-                              )}
-                            </div>
+                            {/* Subcategorías más profundas recursivas */}
+                            {children.length > 0 && (
+                              <div className="pl-3 sm:pl-4 pt-1 space-y-1.5 border-l-2 border-slate-700/40 ml-2">
+                                {children.map((child) => renderNode(child, depth + 1))}
+                              </div>
+                            )}
                           </div>
+                        );
+                      };
 
-                          {/* Lista Anidada de Subcategorías */}
-                          {subs.length > 0 && (
-                            <div className="pl-4 pt-1 space-y-1.5 border-l-2 border-slate-700/50 ml-2">
-                              {subs.map((sub) => {
-                                const subProductCount =
-                                  (sub._count?.products || 0) + (sub._count?.subProducts || 0);
-                                const isDeletingSub = deletingCategoryId === sub.id;
-
-                                return (
-                                  <div
-                                    key={sub.id}
-                                    className="flex items-center justify-between p-2 rounded-xl bg-slate-900/60 border border-slate-800/80 hover:bg-slate-900 transition-colors"
-                                  >
-                                    <div className="flex items-center gap-2 min-w-0">
-                                      <CornerDownRight className="w-3.5 h-3.5 text-sky-400/70 shrink-0" />
-                                      <div className="min-w-0">
-                                        <div className="text-xs font-semibold text-slate-200 truncate">
-                                          {sub.name}
-                                        </div>
-                                        {sub.description && (
-                                          <div className="text-[10px] text-slate-400 truncate">
-                                            {sub.description}
-                                          </div>
-                                        )}
-                                      </div>
-                                    </div>
-
-                                    <div className="flex items-center gap-2 shrink-0">
-                                      <span className="px-2 py-0.5 rounded-md text-[10px] font-semibold bg-slate-800 text-slate-400 border border-slate-700/60">
-                                        {subProductCount} prod.
-                                      </span>
-
-                                      {isAdmin && (
-                                        <button
-                                          onClick={() => handleDeleteCategory(sub.id, sub.name, true)}
-                                          disabled={subProductCount > 0 || isDeletingSub}
-                                          title={
-                                            subProductCount > 0
-                                              ? 'No se puede eliminar porque contiene productos'
-                                              : 'Eliminar subcategoría'
-                                          }
-                                          className={`p-1 rounded-md border transition-colors ${
-                                            subProductCount > 0
-                                              ? 'opacity-30 border-transparent text-slate-500 cursor-not-allowed'
-                                              : 'border-rose-500/20 text-rose-400 hover:bg-rose-500/10 hover:border-rose-500/40'
-                                          }`}
-                                        >
-                                          <Trash2
-                                            className={`w-3 h-3 ${
-                                              isDeletingSub ? 'animate-spin' : ''
-                                            }`}
-                                          />
-                                        </button>
-                                      )}
-                                    </div>
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      );
+                      return renderNode(rootCat, 0);
                     })}
                   </div>
                 )}

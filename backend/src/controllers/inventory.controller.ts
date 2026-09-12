@@ -33,10 +33,12 @@ export async function getProducts(req: Request, res: Response, next: NextFunctio
     const whereConditions: any[] = [{ isActive: true }];
 
     if (categoryId && categoryId !== 'ALL') {
+      const descendantIds = await getAllDescendantCategoryIds(categoryId);
+      const allCategoryIds = [categoryId, ...descendantIds];
       whereConditions.push({
         OR: [
-          { categoryId: categoryId },
-          { subcategoryId: categoryId },
+          { categoryId: { in: allCategoryIds } },
+          { subcategoryId: { in: allCategoryIds } },
         ],
       });
     }
@@ -354,23 +356,48 @@ export async function deleteProduct(req: AuthRequest, res: Response, next: NextF
   }
 }
 
+// Helper para obtener recursivamente todos los IDs descendientes de una categoría
+async function getAllDescendantCategoryIds(categoryId: string): Promise<string[]> {
+  const children = await prisma.category.findMany({
+    where: { parentId: categoryId, isActive: true },
+    select: { id: true },
+  });
+  let ids = children.map((c) => c.id);
+  for (const child of children) {
+    const grandChildren = await getAllDescendantCategoryIds(child.id);
+    ids = ids.concat(grandChildren);
+  }
+  return ids;
+}
+
 export async function getCategories(req: Request, res: Response, next: NextFunction): Promise<void> {
   try {
-    const categories = await prisma.category.findMany({
+    const rawCategories = await prisma.category.findMany({
       where: { isActive: true },
       include: {
-        parent: { select: { id: true, name: true } },
-        children: {
-          where: { isActive: true },
-          include: {
-            _count: { select: { products: true, subProducts: true } },
-          },
-          orderBy: { name: 'asc' },
-        },
+        parent: { select: { id: true, name: true, parentId: true } },
         _count: { select: { products: true, subProducts: true } },
       },
       orderBy: { name: 'asc' },
     });
+
+    // Mapeo para adjuntar recursivamente los hijos a cualquier nivel
+    const categoryMap = new Map<string, any>();
+    rawCategories.forEach((cat) => {
+      categoryMap.set(cat.id, {
+        ...cat,
+        children: [],
+      });
+    });
+
+    // Conectar cada subcategoría a su padre directo
+    categoryMap.forEach((cat) => {
+      if (cat.parentId && categoryMap.has(cat.parentId)) {
+        categoryMap.get(cat.parentId).children.push(cat);
+      }
+    });
+
+    const categories = Array.from(categoryMap.values());
     res.json({ success: true, data: categories });
   } catch (error) {
     next(error);
@@ -394,7 +421,7 @@ export async function createCategory(req: AuthRequest, res: Response, next: Next
         where: { id: parentId, isActive: true },
       });
       if (!parentCat) {
-        res.status(400).json({ success: false, message: 'La categoría principal seleccionada no existe o no está activa' });
+        res.status(400).json({ success: false, message: 'La categoría padre seleccionada no existe o no está activa' });
         return;
       }
     }
@@ -439,7 +466,7 @@ export async function createCategory(req: AuthRequest, res: Response, next: Next
         isActive: true,
       },
       include: {
-        parent: { select: { id: true, name: true } },
+        parent: { select: { id: true, name: true, parentId: true } },
         children: { where: { isActive: true } },
       },
     });
@@ -487,9 +514,24 @@ export async function updateCategory(req: AuthRequest, res: Response, next: Next
       return;
     }
 
-    if (parentId && category.children.length > 0) {
-      res.status(400).json({ success: false, message: 'Una categoría con subcategorías no puede convertirse en subcategoría' });
-      return;
+    // Prevenir ciclos en el árbol: no se puede mover una categoría a uno de sus propios descendientes
+    if (parentId) {
+      const descendants = await getAllDescendantCategoryIds(id);
+      if (descendants.includes(parentId)) {
+        res.status(400).json({
+          success: false,
+          message: 'No se puede mover una categoría dentro de una de sus propias subcategorías',
+        });
+        return;
+      }
+
+      const parentCat = await prisma.category.findFirst({
+        where: { id: parentId, isActive: true },
+      });
+      if (!parentCat) {
+        res.status(400).json({ success: false, message: 'La categoría padre seleccionada no existe o no está activa' });
+        return;
+      }
     }
 
     if (trimmedName !== category.name || parentId !== category.parentId) {
@@ -518,7 +560,7 @@ export async function updateCategory(req: AuthRequest, res: Response, next: Next
         parentId: parentId,
       },
       include: {
-        parent: { select: { id: true, name: true } },
+        parent: { select: { id: true, name: true, parentId: true } },
         children: { where: { isActive: true } },
       },
     });
@@ -545,59 +587,47 @@ export async function deleteCategory(req: AuthRequest, res: Response, next: Next
       where: { id },
       include: {
         _count: { select: { products: true, subProducts: true } },
-        children: {
-          where: { isActive: true },
-          include: {
-            _count: { select: { products: true, subProducts: true } },
-          },
-        },
       },
     });
 
-    if (!category) {
+    if (!category || !category.isActive) {
       res.status(404).json({ success: false, message: 'Categoría no encontrada' });
       return;
     }
 
-    const totalDirectProducts = (category._count?.products || 0) + (category._count?.subProducts || 0);
-    if (totalDirectProducts > 0) {
+    const descendantIds = await getAllDescendantCategoryIds(id);
+    const allIdsToCheck = [id, ...descendantIds];
+
+    // Verificar si la categoría o alguna de sus subcategorías descendientes tiene productos vinculados
+    const productsUsingCategories = await prisma.product.count({
+      where: {
+        isActive: true,
+        OR: [
+          { categoryId: { in: allIdsToCheck } },
+          { subcategoryId: { in: allIdsToCheck } },
+        ],
+      },
+    });
+
+    if (productsUsingCategories > 0) {
       res.status(400).json({
         success: false,
-        message: `No se puede eliminar "${category.name}" porque tiene ${totalDirectProducts} producto(s) vinculado(s).`,
+        message: `No se puede eliminar "${category.name}" porque contiene ${productsUsingCategories} producto(s) vinculado(s) directamente o en sus subcategorías.`,
       });
       return;
     }
 
-    const activeChildren = category.children || [];
-    const childrenWithProducts = activeChildren.filter(
-      (c) => (c._count?.products || 0) + (c._count?.subProducts || 0) > 0
-    );
-
-    if (childrenWithProducts.length > 0) {
-      res.status(400).json({
-        success: false,
-        message: `No se puede eliminar "${category.name}" porque tiene subcategorías con productos vinculados.`,
-      });
-      return;
-    }
-
-    // Soft delete de la categoría y sus subcategorías activas
+    // Soft delete de la categoría y todas sus subcategorías descendientes
     await prisma.$transaction(async (tx) => {
-      if (activeChildren.length > 0) {
-        await tx.category.updateMany({
-          where: { parentId: id, isActive: true },
-          data: { isActive: false },
-        });
-      }
-      await tx.category.update({
-        where: { id },
+      await tx.category.updateMany({
+        where: { id: { in: allIdsToCheck } },
         data: { isActive: false },
       });
     });
 
     res.json({
       success: true,
-      message: `"${category.name}" eliminada exitosamente`,
+      message: `"${category.name}" ${descendantIds.length > 0 ? 'y sus subcategorías fueron eliminadas' : 'eliminada'} exitosamente`,
     });
   } catch (error) {
     next(error);
