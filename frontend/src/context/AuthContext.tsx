@@ -104,6 +104,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         return { success: true };
       }
 
+      if (lowerIdent === 'operador.tobii' && (password === 'Admin123!' || password === 'Tobii2026!')) {
+        const demoTobiiUser: UserProfile = {
+          id: 'demo-tobii-id',
+          email: 'operador.tobii',
+          fullName: 'Operador Tobii (TD I-16)',
+          role: 'OPERADOR',
+          permissions: ['inventory:read', 'inventory:update'],
+          twoFactorEnabled: false,
+        };
+        const demoToken = 'demo-jwt-token-tobii';
+        setToken(demoToken);
+        setUser(demoTobiiUser);
+        localStorage.setItem('erp_muller_token', demoToken);
+        localStorage.setItem('erp_muller_user', JSON.stringify(demoTobiiUser));
+        return { success: true };
+      }
+
       return {
         success: false,
         message: response.message || 'Credenciales inválidas. Verifica tu usuario y contraseña.',

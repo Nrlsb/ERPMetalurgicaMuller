@@ -1,7 +1,8 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Bell, Search, Calendar, ShieldCheck, Sparkles, PanelLeft, Menu, X } from 'lucide-react';
+import Link from 'next/link';
+import { Bell, Search, Calendar, ShieldCheck, Sparkles, PanelLeft, Menu, X, Eye } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSidebar } from '@/context/SidebarContext';
 
@@ -95,6 +96,16 @@ export default function Header() {
               <Calendar className="w-3.5 h-3.5 text-sky-400" />
               <span className="capitalize">{today}</span>
             </div>
+
+            {/* Acceso Rápido Modo Tobii / Control Ocular */}
+            <Link
+              href="/inventario/control-adaptado"
+              className="flex items-center space-x-1.5 bg-sky-950/60 hover:bg-sky-900 border border-sky-500/40 text-sky-300 hover:text-white px-3 py-1.5 rounded-xl text-xs font-bold transition-all shadow-sm shadow-sky-500/10"
+              title="Modo accesible para Tobii Dynavox TD I-16"
+            >
+              <Eye className="w-4 h-4 text-sky-400" />
+              <span className="hidden sm:inline">Modo Tobii</span>
+            </Link>
 
             {/* Notifications */}
             <button className="relative p-2 rounded-xl bg-slate-900/60 border border-slate-800 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors">

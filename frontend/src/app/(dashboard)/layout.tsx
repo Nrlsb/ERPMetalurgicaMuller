@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, usePathname } from 'next/navigation';
 import Sidebar from '@/components/layout/Sidebar';
 import Header from '@/components/layout/Header';
 import { useAuth } from '@/context/AuthContext';
@@ -13,6 +13,7 @@ export default function DashboardLayout({
 }) {
   const { user, isLoading } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
 
   useEffect(() => {
     if (!isLoading && !user) {
@@ -27,6 +28,16 @@ export default function DashboardLayout({
           <div className="w-12 h-12 rounded-full border-4 border-emerald-500/20 border-t-emerald-500 animate-spin" />
           <p className="text-sm font-medium text-slate-400">Cargando ERP Muller...</p>
         </div>
+      </div>
+    );
+  }
+
+  // Si está en el modo adaptado para Tobii TD I-16, renderizar pantalla completa inmersiva
+  const isAdaptedMode = pathname.includes('/control-adaptado');
+  if (isAdaptedMode) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 w-full">
+        {children}
       </div>
     );
   }

@@ -48,7 +48,11 @@ export default function LoginPage() {
 
         const res = await verify2FALogin(tempToken, twoFactorCode.trim());
         if (res.success) {
-          router.push('/dashboard');
+          if (username.toLowerCase().includes('tobii')) {
+            router.push('/inventario/control-adaptado');
+          } else {
+            router.push('/dashboard');
+          }
         } else {
           setError(res.message || 'Código 2FA incorrecto o expirado');
         }
@@ -59,7 +63,11 @@ export default function LoginPage() {
           setIs2FAStage(true);
           setTwoFactorCode('');
         } else if (res.success) {
-          router.push('/dashboard');
+          if (username.toLowerCase().includes('tobii')) {
+            router.push('/inventario/control-adaptado');
+          } else {
+            router.push('/dashboard');
+          }
         } else {
           setError(res.message || 'Error al iniciar sesión');
         }
@@ -240,25 +248,33 @@ export default function LoginPage() {
               <p className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider mb-2.5 text-center">
                 Acceso Rápido de Prueba (Demo)
               </p>
-              <div className="flex gap-2">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                 <button
                   type="button"
                   onClick={() => setCredentials('BenitezLucas', 'Admin123!')}
-                  className="flex-1 py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
+                  className="py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
                 >
-                  👑 BenitezLucas
+                  👑 Admin
                 </button>
                 <button
                   type="button"
                   onClick={() => setCredentials('operador', 'Admin123!')}
-                  className="flex-1 py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
+                  className="py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
                 >
                   📦 Operador
                 </button>
                 <button
                   type="button"
+                  onClick={() => setCredentials('operador.tobii', 'Admin123!')}
+                  className="py-1.5 px-2 bg-sky-950/80 hover:bg-sky-900 text-sky-300 hover:text-white rounded-lg text-xs border border-sky-500/50 transition-colors font-medium text-center"
+                  title="Ingreso adaptado para Tobii Dynavox TD I-16"
+                >
+                  👁️ Tobii Stock
+                </button>
+                <button
+                  type="button"
                   onClick={() => setCredentials('ventas', 'Admin123!')}
-                  className="flex-1 py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
+                  className="py-1.5 px-2 bg-slate-900/80 hover:bg-slate-800 text-slate-300 hover:text-white rounded-lg text-xs border border-slate-700/70 transition-colors font-medium text-center"
                 >
                   🛒 Ventas
                 </button>

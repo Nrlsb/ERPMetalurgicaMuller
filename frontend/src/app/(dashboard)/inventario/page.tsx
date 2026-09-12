@@ -34,6 +34,7 @@ import {
   Boxes,
   Info,
   Camera,
+  Eye,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 import { exportToCsv } from '@/lib/export';
@@ -692,6 +693,15 @@ export default function InventarioPage() {
           >
             <Factory className="w-4 h-4" />
             <span>Fabricación</span>
+          </Link>
+
+          <Link
+            href="/inventario/control-adaptado"
+            className="flex items-center gap-1.5 sm:gap-2 px-3 sm:px-3.5 py-2 sm:py-2.5 bg-sky-950/80 hover:bg-sky-900 text-sky-300 hover:text-white font-bold rounded-xl text-xs sm:text-sm border border-sky-500/40 shadow-md transition-all active:scale-[0.98]"
+            title="Abrir Control de Stock Adaptado para Tobii TD I-16 (Mirada Ocular)"
+          >
+            <Eye className="w-4 h-4 text-sky-400" />
+            <span>Modo Tobii (Stock)</span>
           </Link>
 
           <button

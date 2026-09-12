@@ -18,6 +18,7 @@ import {
   PanelLeftOpen,
   Factory,
   X,
+  Eye,
 } from 'lucide-react';
 import { useAuth } from '@/context/AuthContext';
 import { useSidebar } from '@/context/SidebarContext';
@@ -37,6 +38,13 @@ const menuItems = [
     icon: Package,
     badge: 'Módulo 2',
     roles: ['ADMIN', 'OPERADOR', 'COMPRAS'],
+  },
+  {
+    title: 'Control Adaptado (Tobii)',
+    href: '/inventario/control-adaptado',
+    icon: Eye,
+    badge: 'Accesible',
+    roles: ['ADMIN', 'OPERADOR'],
   },
   {
     title: 'Fabricación & Recetas',

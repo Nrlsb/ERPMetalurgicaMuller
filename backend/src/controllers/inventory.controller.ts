@@ -716,3 +716,196 @@ export async function getStockMovements(req: Request, res: Response, next: NextF
     next(error);
   }
 }
+
+const adjustStockSchema = z.object({
+  productId: z.string().min(1, 'El ID del producto es requerido'),
+  deltaQuantity: z.number().int().optional(),
+  targetStock: z.number().int().min(0, 'El stock no puede ser negativo').optional(),
+  reason: z.string().default('CONTEO_FISICO'),
+  notes: z.string().optional(),
+  locationId: z.string().optional(),
+});
+
+export async function adjustStock(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = adjustStockSchema.parse(req.body);
+    const userId = req.user?.id;
+
+    if (data.deltaQuantity === undefined && data.targetStock === undefined) {
+      res.status(400).json({
+        success: false,
+        message: 'Debe especificar deltaQuantity o targetStock',
+      });
+      return;
+    }
+
+    const product = await prisma.product.findUnique({
+      where: { id: data.productId },
+      include: {
+        locationStocks: true,
+      },
+    });
+
+    if (!product || !product.isActive) {
+      res.status(404).json({ success: false, message: 'Producto no encontrado o inactivo' });
+      return;
+    }
+
+    const currentStock = product.currentStock;
+    let newStock = currentStock;
+    let quantityDiff = 0;
+
+    if (data.targetStock !== undefined) {
+      newStock = data.targetStock;
+      quantityDiff = newStock - currentStock;
+    } else if (data.deltaQuantity !== undefined) {
+      quantityDiff = data.deltaQuantity;
+      newStock = currentStock + quantityDiff;
+      if (newStock < 0) {
+        res.status(400).json({
+          success: false,
+          message: `El ajuste resulta en un stock negativo (${newStock}). No se puede reducir más de lo disponible (${currentStock}).`,
+        });
+        return;
+      }
+    }
+
+    // Si quantityDiff === 0 (verificación / conteo sin discrepancia)
+    if (quantityDiff === 0) {
+      await prisma.auditLog.create({
+        data: {
+          userId,
+          action: 'STOCK_VERIFIED',
+          module: 'INVENTORY',
+          entityId: product.id,
+          details: {
+            sku: product.sku,
+            productName: product.name,
+            currentStock,
+            reason: data.reason,
+            notes: data.notes || 'Conteo físico verificado sin discrepancia',
+          },
+        },
+      });
+
+      res.json({
+        success: true,
+        message: `Stock verificado correctamente para "${product.name}". Cantidad actual: ${currentStock}`,
+        data: {
+          product: {
+            ...product,
+            currentStock,
+          },
+          movement: null,
+          verified: true,
+        },
+      });
+      return;
+    }
+
+    const movementType =
+      quantityDiff > 0
+        ? 'AJUSTE_POSITIVO'
+        : data.reason === 'ROTURA' || data.reason === 'MERMA'
+        ? 'MERMA'
+        : 'AJUSTE_NEGATIVO';
+
+    const result = await prisma.$transaction(async (tx) => {
+      // 1. Actualizar producto
+      const updatedProduct = await tx.product.update({
+        where: { id: product.id },
+        data: { currentStock: newStock },
+        include: {
+          category: { select: { id: true, name: true } },
+          subcategory: { select: { id: true, name: true } },
+          unit: { select: { symbol: true } },
+        },
+      });
+
+      // 2. Generar movimiento de stock
+      const movementCode = await generateNextCode(tx, 'STOCK_MOVEMENT');
+      const targetLocationId = data.locationId || product.locationStocks[0]?.locationId;
+
+      const movement = await tx.stockMovement.create({
+        data: {
+          code: movementCode,
+          type: movementType as any,
+          originLocationId: quantityDiff < 0 ? targetLocationId : undefined,
+          destLocationId: quantityDiff > 0 ? targetLocationId : undefined,
+          reference: data.reason,
+          notes: data.notes || `Ajuste control de stock: ${quantityDiff > 0 ? '+' : ''}${quantityDiff}`,
+          userId: userId || null,
+          items: {
+            create: {
+              productId: product.id,
+              quantity: Math.abs(quantityDiff),
+              unitCost: product.costPrice,
+            },
+          },
+        },
+      });
+
+      // 3. Actualizar locationStocks si hay ubicación
+      if (targetLocationId) {
+        const existingLocStock = await tx.locationStock.findUnique({
+          where: {
+            productId_locationId: {
+              productId: product.id,
+              locationId: targetLocationId,
+            },
+          },
+        });
+
+        if (existingLocStock) {
+          const locNewQty = Math.max(0, existingLocStock.quantity + quantityDiff);
+          await tx.locationStock.update({
+            where: { id: existingLocStock.id },
+            data: { quantity: locNewQty },
+          });
+        } else {
+          await tx.locationStock.create({
+            data: {
+              productId: product.id,
+              locationId: targetLocationId,
+              quantity: Math.max(0, newStock),
+            },
+          });
+        }
+      }
+
+      // 4. Audit Log
+      await tx.auditLog.create({
+        data: {
+          userId,
+          action: 'STOCK_ADJUSTMENT',
+          module: 'INVENTORY',
+          entityId: product.id,
+          details: {
+            sku: product.sku,
+            productName: product.name,
+            previousStock: currentStock,
+            newStock,
+            diff: quantityDiff,
+            reason: data.reason,
+            movementCode,
+            notes: data.notes,
+          },
+        },
+      });
+
+      return { product: updatedProduct, movement };
+    });
+
+    res.json({
+      success: true,
+      message: `Stock de "${product.name}" actualizado de ${currentStock} a ${newStock} (${quantityDiff > 0 ? '+' : ''}${quantityDiff})`,
+      data: result,
+    });
+  } catch (error: any) {
+    if (error.name === 'ZodError') {
+      res.status(400).json({ success: false, message: error.errors[0]?.message || 'Datos de ajuste inválidos' });
+      return;
+    }
+    next(error);
+  }
+}

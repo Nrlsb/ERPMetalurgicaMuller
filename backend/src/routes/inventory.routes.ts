@@ -10,6 +10,7 @@ import {
   deleteCategory,
   getStockAlerts,
   getStockMovements,
+  adjustStock,
 } from '../controllers/inventory.controller';
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware';
 
@@ -21,6 +22,7 @@ router.get('/products', getProducts);
 router.post('/products', authorizeRoles('ADMIN', 'OPERADOR', 'COMPRAS'), createProduct);
 router.put('/products/:id', authorizeRoles('ADMIN', 'OPERADOR'), updateProduct);
 router.delete('/products/:id', authorizeRoles('ADMIN'), deleteProduct);
+router.post('/adjust', authorizeRoles('ADMIN', 'OPERADOR'), adjustStock);
 
 router.get('/categories', getCategories);
 router.post('/categories', authorizeRoles('ADMIN'), createCategory);
