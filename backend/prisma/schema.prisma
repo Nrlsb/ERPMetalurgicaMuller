@@ -190,7 +190,9 @@ model Product {
   unitId          String?
   unit            UnitOfMeasure?  @relation(fields: [unitId], references: [id])
   
+  supplierCode    String?         // Código de proveedor asignado
   costPrice       Decimal         @default(0) @db.Decimal(12, 2)
+  markup          Decimal         @default(0) @db.Decimal(5, 2) // Margen de ganancia sobre costo (%)
   salePrice       Decimal         @default(0) @db.Decimal(12, 2)
   iva             Decimal         @default(21) @db.Decimal(5, 2)
   minStock        Int             @default(5)

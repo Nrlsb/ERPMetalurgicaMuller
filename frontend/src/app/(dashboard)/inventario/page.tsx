@@ -32,11 +32,15 @@ import {
   Barcode,
   FileText,
   Boxes,
+  Info,
+  Camera,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 import { exportToCsv } from '@/lib/export';
 import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
+import { BarcodeScannerModal } from '@/components/inventario/BarcodeScannerModal';
+import { ProductPurchaseHistoryModal } from '@/components/inventario/ProductPurchaseHistoryModal';
 
 interface SupplierItem {
   id: string;
@@ -120,6 +124,7 @@ interface Product {
   id: string;
   sku: string;
   barcode?: string;
+  supplierCode?: string;
   name: string;
   description?: string;
   location?: string;
@@ -128,6 +133,7 @@ interface Product {
   subcategory?: { id?: string; name: string };
   subcategoryId?: string;
   costPrice: number;
+  markup?: number;
   salePrice: number;
   iva?: number;
   minStock: number;
@@ -159,7 +165,8 @@ export default function InventarioPage() {
   const { success, error, warning } = useToast();
   const { user } = useAuth();
   const isAdmin = user?.role === 'ADMIN';
-  const canSeeFinancials = !user?.role || user.role === 'ADMIN' || user.role === 'FINANZAS';
+  const isOperator = user?.role === 'OPERADOR';
+  const canSeeFinancials = !isOperator && (user?.role === 'ADMIN' || user?.role === 'FINANZAS' || !user?.role);
 
   const [activeTab, setActiveTab] = useState<'catalog' | 'movements' | 'alerts'>('catalog');
   const [products, setProducts] = useState<Product[]>([]);
@@ -185,16 +192,23 @@ export default function InventarioPage() {
   const [isCategorySubmitting, setIsCategorySubmitting] = useState(false);
   const [deletingCategoryId, setDeletingCategoryId] = useState<string | null>(null);
 
+  // Estados para escáner e historial de compras
+  const [isBarcodeScannerOpen, setIsBarcodeScannerOpen] = useState(false);
+  const [purchaseHistoryProductId, setPurchaseHistoryProductId] = useState<string | null>(null);
+  const [purchaseHistoryProductName, setPurchaseHistoryProductName] = useState<string>('');
+
   // Formulario producto
   const [formData, setFormData] = useState<{
     sku: string;
     barcode: string;
+    supplierCode: string;
     name: string;
     description: string;
     location: string;
     categoryId: string;
     subcategoryId: string;
     costPrice: string;
+    markup: string;
     salePrice: string;
     iva: string;
     supplierIds: string[];
@@ -204,12 +218,14 @@ export default function InventarioPage() {
   }>({
     sku: '',
     barcode: '',
+    supplierCode: '',
     name: '',
     description: '',
     location: '',
     categoryId: '',
     subcategoryId: '',
     costPrice: '',
+    markup: '0',
     salePrice: '',
     iva: '21',
     supplierIds: [],
@@ -267,17 +283,65 @@ export default function InventarioPage() {
     return flattenCategoryTree(rootNode.children, 1, rootNode.name);
   }, [formData.categoryId, categoryTree]);
 
+  // Cálculos dinámicos bidireccionales de Markup y Precios
+  const handleCostChange = (val: string) => {
+    const numCost = parseFloat(val) || 0;
+    const numMarkup = parseFloat(formData.markup) || 0;
+    if (numCost > 0 && numMarkup > 0) {
+      const calculatedSale = numCost * (1 + numMarkup / 100);
+      setFormData((prev) => ({
+        ...prev,
+        costPrice: val,
+        salePrice: calculatedSale.toFixed(2),
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, costPrice: val }));
+    }
+  };
+
+  const handleMarkupChange = (val: string) => {
+    const numMarkup = parseFloat(val) || 0;
+    const numCost = parseFloat(formData.costPrice) || 0;
+    if (numCost > 0) {
+      const calculatedSale = numCost * (1 + numMarkup / 100);
+      setFormData((prev) => ({
+        ...prev,
+        markup: val,
+        salePrice: calculatedSale.toFixed(2),
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, markup: val }));
+    }
+  };
+
+  const handleSalePriceChange = (val: string) => {
+    const numSale = parseFloat(val) || 0;
+    const numCost = parseFloat(formData.costPrice) || 0;
+    if (numCost > 0 && numSale >= numCost) {
+      const calculatedMarkup = ((numSale - numCost) / numCost) * 100;
+      setFormData((prev) => ({
+        ...prev,
+        salePrice: val,
+        markup: calculatedMarkup.toFixed(2),
+      }));
+    } else {
+      setFormData((prev) => ({ ...prev, salePrice: val }));
+    }
+  };
+
   const handleOpenCreateModal = () => {
     setEditingProduct(null);
     setFormData({
       sku: '',
       barcode: '',
+      supplierCode: '',
       name: '',
       description: '',
       location: '',
       categoryId: '',
       subcategoryId: '',
       costPrice: '',
+      markup: '0',
       salePrice: '',
       iva: '21',
       supplierIds: [],
@@ -314,15 +378,24 @@ export default function InventarioPage() {
       }
     }
 
+    const numCost = Number(p.costPrice || 0);
+    const numSale = Number(p.salePrice || 0);
+    let initialMarkup = p.markup !== undefined ? String(p.markup) : '0';
+    if ((p.markup === undefined || Number(p.markup) === 0) && numCost > 0 && numSale >= numCost) {
+      initialMarkup = (((numSale - numCost) / numCost) * 100).toFixed(2);
+    }
+
     setFormData({
       sku: p.sku || '',
       barcode: p.barcode || '',
+      supplierCode: p.supplierCode || '',
       name: p.name || '',
       description: p.description || '',
       location: p.location || '',
       categoryId: catId,
       subcategoryId: subCatId,
       costPrice: String(p.costPrice || 0),
+      markup: initialMarkup,
       salePrice: String(p.salePrice || 0),
       iva: String(p.iva ?? 21),
       supplierIds: p.suppliers ? p.suppliers.map((s) => s.id) : [],
@@ -349,12 +422,14 @@ export default function InventarioPage() {
       const payload: any = {
         sku: formData.sku.trim(),
         barcode: formData.barcode.trim() || undefined,
+        supplierCode: formData.supplierCode.trim() || undefined,
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
         location: formData.location.trim() || undefined,
         categoryId: formData.categoryId || undefined,
         subcategoryId: formData.subcategoryId || undefined,
         costPrice: parseFloat(formData.costPrice) || 0,
+        markup: parseFloat(formData.markup) || 0,
         salePrice: parseFloat(formData.salePrice) || 0,
         iva: parseFloat(formData.iva) || 0,
         supplierIds: formData.supplierIds,
@@ -884,7 +959,22 @@ export default function InventarioPage() {
                       </div>
 
                       <div>
-                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">P. Costo</div>
+                        <div className="text-[10px] font-bold text-slate-400 uppercase tracking-wider flex items-center justify-center gap-1">
+                          <span>P. Costo</span>
+                          {canSeeFinancials && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPurchaseHistoryProductId(p.id);
+                                setPurchaseHistoryProductName(p.name);
+                              }}
+                              className="text-sky-400 hover:text-sky-300"
+                              title="Ver historial de compras"
+                            >
+                              <Info className="w-3 h-3" />
+                            </button>
+                          )}
+                        </div>
                         <div className="text-xs font-semibold text-slate-300">
                           {canSeeFinancials
                             ? `$${Number(p.costPrice).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`
@@ -936,6 +1026,11 @@ export default function InventarioPage() {
                           <td className="p-4">
                             <div className="font-mono text-xs font-bold text-blue-400">{p.sku}</div>
                             {p.barcode && <div className="text-[10px] text-slate-500 font-mono">{p.barcode}</div>}
+                            {p.supplierCode && (
+                              <div className="text-[10px] text-purple-400 font-mono font-semibold" title="Código de Proveedor">
+                                Prov: {p.supplierCode}
+                              </div>
+                            )}
                           </td>
                           <td className="p-4">
                             <div className="font-bold text-white">{p.name}</div>
@@ -978,9 +1073,24 @@ export default function InventarioPage() {
                             </div>
                           </td>
                           <td className="p-4 text-right text-xs text-slate-400">
-                            {canSeeFinancials
-                              ? `$${Number(p.costPrice).toLocaleString('es-AR', { minimumFractionDigits: 2 })}`
-                              : '—'}
+                            {canSeeFinancials ? (
+                              <div className="inline-flex items-center justify-end gap-1.5 font-mono">
+                                <span>${Number(p.costPrice).toLocaleString('es-AR', { minimumFractionDigits: 2 })}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    setPurchaseHistoryProductId(p.id);
+                                    setPurchaseHistoryProductName(p.name);
+                                  }}
+                                  className="p-1 rounded text-slate-400 hover:text-sky-400 hover:bg-slate-800 transition-colors"
+                                  title="Ver historial de compras y variación de costo"
+                                >
+                                  <Info className="w-3.5 h-3.5 text-sky-400" />
+                                </button>
+                              </div>
+                            ) : (
+                              '—'
+                            )}
                           </td>
                           <td className="p-4 text-right">
                             <div className="font-bold text-white">
@@ -1270,7 +1380,7 @@ export default function InventarioPage() {
                   </h4>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                       <Tag className="w-3.5 h-3.5 text-blue-400" />
@@ -1288,16 +1398,42 @@ export default function InventarioPage() {
 
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                      <Barcode className="w-3.5 h-3.5 text-sky-400" />
-                      <span>Código de Barras EAN</span>
+                      <Building className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Cód. Proveedor</span>
                     </label>
                     <input
                       type="text"
-                      value={formData.barcode}
-                      onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
-                      placeholder="Ej. 7791234567890"
-                      className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono"
+                      value={formData.supplierCode}
+                      onChange={(e) => setFormData({ ...formData, supplierCode: e.target.value })}
+                      placeholder="Ej. PROV-ART-88"
+                      className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all font-mono"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                      <span className="flex items-center gap-1.5">
+                        <Barcode className="w-3.5 h-3.5 text-sky-400" />
+                        <span>Código de Barras</span>
+                      </span>
+                    </label>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={formData.barcode}
+                        onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
+                        placeholder="Ej. 7791234567890"
+                        className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl pl-3.5 pr-11 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-sky-500 focus:ring-2 focus:ring-sky-500/20 transition-all font-mono"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setIsBarcodeScannerOpen(true)}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-1.5 bg-sky-500/10 hover:bg-sky-500/20 text-sky-400 hover:text-sky-300 rounded-lg border border-sky-500/30 transition-all"
+                        title="Escanear con la cámara del celular"
+                      >
+                        <Camera className="w-4 h-4" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -1416,79 +1552,118 @@ export default function InventarioPage() {
                 </div>
               </div>
 
-              {/* 2. SECCIÓN: Precios e Impuestos */}
-              <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
-                <div className="flex items-center gap-2 pb-2.5 border-b border-slate-700/50">
-                  <DollarSign className="w-4 h-4 text-emerald-400" />
-                  <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
-                    2. Precios e Impuestos
-                  </h4>
+              {/* 2. SECCIÓN: Precios, Markup e Impuestos (Oculto para operarios de stock) */}
+              {!canSeeFinancials ? (
+                <div className="p-4 rounded-2xl bg-slate-800/30 border border-slate-700/50 flex items-center gap-3 text-slate-400 text-xs">
+                  <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0" />
+                  <span>Tu rol (Operador de Stock) no tiene permisos para visualizar ni modificar costos, márgenes o precios de venta.</span>
                 </div>
+              ) : (
+                <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
+                  <div className="flex items-center gap-2 pb-2.5 border-b border-slate-700/50">
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-slate-200">
+                      2. Estructura de Precios, Markup & Rentabilidad
+                    </h4>
+                  </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
-                      <span>Precio de Costo</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold pointer-events-none">$</span>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={formData.costPrice}
-                        onChange={(e) => setFormData({ ...formData, costPrice: e.target.value })}
-                        placeholder="0.00"
-                        className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl pl-8 pr-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono"
-                      />
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3.5">
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>Precio Costo</span>
+                        </span>
+                        {editingProduct && (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setPurchaseHistoryProductId(editingProduct.id);
+                              setPurchaseHistoryProductName(editingProduct.name);
+                            }}
+                            className="p-1 rounded text-sky-400 hover:text-sky-300 hover:bg-sky-500/10 transition-colors"
+                            title="Ver historial de compras del producto"
+                          >
+                            <Info className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold pointer-events-none">$</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={formData.costPrice}
+                          onChange={(e) => handleCostChange(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl pl-8 pr-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <Percent className="w-3.5 h-3.5 text-amber-400" />
+                        <span>Markup (%)</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold pointer-events-none">%</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={formData.markup}
+                          onChange={(e) => handleMarkupChange(e.target.value)}
+                          placeholder="0"
+                          className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl pl-8 pr-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-amber-500 focus:ring-2 focus:ring-amber-500/20 transition-all font-mono"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                        <DollarSign className="w-3.5 h-3.5 text-blue-400" />
+                        <span>Precio Venta</span>
+                      </label>
+                      <div className="relative">
+                        <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold pointer-events-none">$</span>
+                        <input
+                          type="number"
+                          step="any"
+                          min="0"
+                          value={formData.salePrice}
+                          onChange={(e) => handleSalePriceChange(e.target.value)}
+                          placeholder="0.00"
+                          className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl pl-8 pr-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono font-bold"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
+                        <span className="flex items-center gap-1.5">
+                          <Percent className="w-3.5 h-3.5 text-purple-400" />
+                          <span>Alícuota IVA</span>
+                        </span>
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 font-bold border border-purple-500/20">
+                          {formData.iva}%
+                        </span>
+                      </label>
+                      <select
+                        value={formData.iva}
+                        onChange={(e) => setFormData({ ...formData, iva: e.target.value })}
+                        className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 font-semibold transition-all"
+                      >
+                        <option value="21">21% (General)</option>
+                        <option value="10.5">10.5% (Reducido)</option>
+                        <option value="27">27% (Incrementado)</option>
+                        <option value="0">0% (Exento / No Gravado)</option>
+                      </select>
                     </div>
                   </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                      <DollarSign className="w-3.5 h-3.5 text-blue-400" />
-                      <span>Precio de Venta</span>
-                    </label>
-                    <div className="relative">
-                      <span className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400 text-sm font-semibold pointer-events-none">$</span>
-                      <input
-                        type="number"
-                        step="any"
-                        min="0"
-                        value={formData.salePrice}
-                        onChange={(e) => setFormData({ ...formData, salePrice: e.target.value })}
-                        placeholder="0.00"
-                        className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl pl-8 pr-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono"
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center justify-between">
-                      <span className="flex items-center gap-1.5">
-                        <Percent className="w-3.5 h-3.5 text-purple-400" />
-                        <span>Alícuota IVA</span>
-                      </span>
-                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-purple-500/10 text-purple-300 font-bold border border-purple-500/20">
-                        {formData.iva}%
-                      </span>
-                    </label>
-                    <select
-                      value={formData.iva}
-                      onChange={(e) => setFormData({ ...formData, iva: e.target.value })}
-                      className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 font-semibold transition-all"
-                    >
-                      <option value="21">21% (General)</option>
-                      <option value="10.5">10.5% (Reducido)</option>
-                      <option value="27">27% (Incrementado)</option>
-                      <option value="0">0% (Exento / No Gravado)</option>
-                      <option value="2.5">2.5% (Especial)</option>
-                      <option value="5">5% (Especial)</option>
-                    </select>
-                  </div>
                 </div>
-              </div>
+              )}
 
               {/* 3. SECCIÓN: Gestión de Stock y Ubicación */}
               <div className="bg-slate-800/40 border border-slate-700/60 rounded-2xl p-4 sm:p-5 space-y-4 shadow-sm">
@@ -2059,6 +2234,27 @@ export default function InventarioPage() {
           </div>
         </div>
       )}
+
+      {/* Modal de Escáner de Código de Barras con Cámara */}
+      <BarcodeScannerModal
+        isOpen={isBarcodeScannerOpen}
+        onClose={() => setIsBarcodeScannerOpen(false)}
+        onScan={(scannedCode) => {
+          setFormData((prev) => ({ ...prev, barcode: scannedCode }));
+          success(`Código escaneado: ${scannedCode}`);
+        }}
+      />
+
+      {/* Modal de Historial de Compras de Producto */}
+      <ProductPurchaseHistoryModal
+        isOpen={!!purchaseHistoryProductId}
+        productId={purchaseHistoryProductId}
+        productName={purchaseHistoryProductName}
+        onClose={() => {
+          setPurchaseHistoryProductId(null);
+          setPurchaseHistoryProductName('');
+        }}
+      />
     </div>
   );
 }

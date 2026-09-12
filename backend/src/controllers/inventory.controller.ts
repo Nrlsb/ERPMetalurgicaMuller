@@ -8,6 +8,7 @@ import { generateNextCode } from '../lib/sequence';
 const createProductSchema = z.object({
   sku: z.string().min(2, 'El SKU es requerido'),
   barcode: z.string().optional(),
+  supplierCode: z.string().optional().nullable(),
   name: z.string().min(2, 'El nombre es requerido'),
   description: z.string().optional(),
   location: z.string().optional(),
@@ -15,8 +16,9 @@ const createProductSchema = z.object({
   subcategoryId: z.string().optional(),
   brandId: z.string().optional(),
   unitId: z.string().optional(),
-  costPrice: z.number().min(0),
-  salePrice: z.number().min(0),
+  costPrice: z.number().min(0).default(0),
+  markup: z.number().min(0).default(0),
+  salePrice: z.number().min(0).default(0),
   iva: z.number().min(0).default(21),
   supplierIds: z.array(z.string()).optional(),
   minStock: z.number().int().min(0).default(5),
@@ -49,6 +51,7 @@ export async function getProducts(req: Request, res: Response, next: NextFunctio
           { name: { contains: params.search, mode: 'insensitive' } },
           { sku: { contains: params.search, mode: 'insensitive' } },
           { barcode: { contains: params.search, mode: 'insensitive' } },
+          { supplierCode: { contains: params.search, mode: 'insensitive' } },
           { description: { contains: params.search, mode: 'insensitive' } },
           { location: { contains: params.search, mode: 'insensitive' } },
         ],
@@ -79,9 +82,22 @@ export async function getProducts(req: Request, res: Response, next: NextFunctio
       }),
     ]);
 
+    // Si el usuario es de rol OPERADOR (quien carga stock), no exponer precios ni costos
+    const userRole = (req as AuthRequest).user?.role;
+    const isOperator = userRole === 'OPERADOR';
+
+    const mappedProducts = isOperator
+      ? products.map((p) => ({
+          ...p,
+          costPrice: 0,
+          markup: 0,
+          salePrice: 0,
+        }))
+      : products;
+
     res.json({
       success: true,
-      ...buildPaginatedResponse(products, total, params),
+      ...buildPaginatedResponse(mappedProducts as any, total, params),
     });
   } catch (error) {
     next(error);
@@ -145,11 +161,19 @@ export async function createProduct(req: AuthRequest, res: Response, next: NextF
       }
     }
 
+    const userRole = req.user?.role;
+    const isOperator = userRole === 'OPERADOR';
+
+    const finalCostPrice = isOperator ? 0 : (data.costPrice || 0);
+    const finalMarkup = isOperator ? 0 : (data.markup || 0);
+    const finalSalePrice = isOperator ? 0 : (data.salePrice || 0);
+
     const product = await prisma.$transaction(async (tx) => {
       const p = await tx.product.create({
         data: {
           sku: data.sku.trim(),
           barcode: cleanBarcode,
+          supplierCode: data.supplierCode?.trim() || null,
           name: data.name.trim(),
           description: data.description?.trim() || null,
           location: data.location?.trim() || null,
@@ -157,8 +181,9 @@ export async function createProduct(req: AuthRequest, res: Response, next: NextF
           subcategoryId: data.subcategoryId || null,
           brandId: data.brandId || null,
           unitId: data.unitId || null,
-          costPrice: data.costPrice,
-          salePrice: data.salePrice,
+          costPrice: finalCostPrice,
+          markup: finalMarkup,
+          salePrice: finalSalePrice,
           iva: data.iva,
           minStock: data.minStock,
           idealStock: data.idealStock,
@@ -226,6 +251,7 @@ export async function createProduct(req: AuthRequest, res: Response, next: NextF
 const updateProductSchema = z.object({
   sku: z.string().min(2, 'El SKU debe tener al menos 2 caracteres').optional(),
   barcode: z.string().optional().nullable(),
+  supplierCode: z.string().optional().nullable(),
   name: z.string().min(2, 'El nombre debe tener al menos 2 caracteres').optional(),
   description: z.string().optional().nullable(),
   location: z.string().optional().nullable(),
@@ -234,6 +260,7 @@ const updateProductSchema = z.object({
   brandId: z.string().optional().nullable(),
   unitId: z.string().optional().nullable(),
   costPrice: z.number().min(0, 'El precio de costo no puede ser negativo').optional(),
+  markup: z.number().min(0, 'El markup no puede ser negativo').optional(),
   salePrice: z.number().min(0, 'El precio de venta no puede ser negativo').optional(),
   iva: z.number().min(0, 'La alícuota de IVA no puede ser negativa').optional(),
   supplierIds: z.array(z.string()).optional(),
@@ -280,11 +307,15 @@ export async function updateProduct(req: AuthRequest, res: Response, next: NextF
       }
     }
 
+    const userRole = req.user?.role;
+    const isOperator = userRole === 'OPERADOR';
+
     const updated = await prisma.product.update({
       where: { id },
       data: {
         sku: data.sku ? data.sku.trim() : undefined,
         barcode: data.barcode !== undefined ? cleanBarcode : undefined,
+        supplierCode: data.supplierCode !== undefined ? (data.supplierCode?.trim() || null) : undefined,
         name: data.name ? data.name.trim() : undefined,
         description: data.description !== undefined ? (data.description?.trim() || null) : undefined,
         location: data.location !== undefined ? (data.location?.trim() || null) : undefined,
@@ -292,8 +323,10 @@ export async function updateProduct(req: AuthRequest, res: Response, next: NextF
         subcategoryId: data.subcategoryId !== undefined ? (data.subcategoryId || null) : undefined,
         brandId: data.brandId !== undefined ? (data.brandId || null) : undefined,
         unitId: data.unitId !== undefined ? (data.unitId || null) : undefined,
-        costPrice: data.costPrice !== undefined ? data.costPrice : undefined,
-        salePrice: data.salePrice !== undefined ? data.salePrice : undefined,
+        // Si es operador, no permitir editar ni alterar costo, markup o precio de venta
+        costPrice: isOperator ? undefined : (data.costPrice !== undefined ? data.costPrice : undefined),
+        markup: isOperator ? undefined : (data.markup !== undefined ? data.markup : undefined),
+        salePrice: isOperator ? undefined : (data.salePrice !== undefined ? data.salePrice : undefined),
         iva: data.iva !== undefined ? data.iva : undefined,
         minStock: data.minStock !== undefined ? data.minStock : undefined,
         idealStock: data.idealStock !== undefined ? data.idealStock : undefined,

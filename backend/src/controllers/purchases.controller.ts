@@ -62,13 +62,52 @@ export async function getSuppliers(req: Request, res: Response, next: NextFuncti
     const params = parsePaginationParams(req, 50);
     const whereClause: any = { isActive: true };
 
+    const categoryId = req.query.categoryId as string | undefined;
+    const subcategoryId = req.query.subcategoryId as string | undefined;
+    const code = req.query.code as string | undefined;
+
+    const conditions: any[] = [];
+
+    if (code && code.trim() !== '') {
+      conditions.push({ code: { contains: code.trim(), mode: 'insensitive' } });
+    }
+
+    if (categoryId && categoryId !== 'ALL') {
+      conditions.push({
+        products: {
+          some: {
+            OR: [
+              { categoryId: categoryId },
+              { subcategoryId: categoryId },
+            ],
+          },
+        },
+      });
+    }
+
+    if (subcategoryId && subcategoryId !== 'ALL') {
+      conditions.push({
+        products: {
+          some: {
+            subcategoryId: subcategoryId,
+          },
+        },
+      });
+    }
+
     if (params.search) {
-      whereClause.OR = [
-        { companyName: { contains: params.search, mode: 'insensitive' } },
-        { contactName: { contains: params.search, mode: 'insensitive' } },
-        { code: { contains: params.search, mode: 'insensitive' } },
-        { taxId: { contains: params.search, mode: 'insensitive' } },
-      ];
+      conditions.push({
+        OR: [
+          { companyName: { contains: params.search, mode: 'insensitive' } },
+          { contactName: { contains: params.search, mode: 'insensitive' } },
+          { code: { contains: params.search, mode: 'insensitive' } },
+          { taxId: { contains: params.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+
+    if (conditions.length > 0) {
+      whereClause.AND = conditions;
     }
 
     const [total, suppliers] = await Promise.all([
@@ -224,12 +263,57 @@ export async function getPurchaseInvoices(req: Request, res: Response, next: Nex
   try {
     const params = parsePaginationParams(req, 30);
     const whereClause: any = {};
+    const conditions: any[] = [];
+
+    const supplierId = req.query.supplierId as string | undefined;
+    const isPaid = req.query.isPaid as string | undefined;
+    const productSearch = req.query.productSearch as string | undefined;
+
+    if (supplierId && supplierId !== 'ALL') {
+      conditions.push({ supplierId });
+    }
+
+    if (isPaid !== undefined && isPaid !== 'ALL') {
+      conditions.push({ isPaid: isPaid === 'true' });
+    }
+
+    if (productSearch && productSearch.trim() !== '') {
+      conditions.push({
+        items: {
+          some: {
+            OR: [
+              { product: { name: { contains: productSearch.trim(), mode: 'insensitive' } } },
+              { product: { sku: { contains: productSearch.trim(), mode: 'insensitive' } } },
+              { product: { supplierCode: { contains: productSearch.trim(), mode: 'insensitive' } } },
+            ],
+          },
+        },
+      });
+    }
 
     if (params.search) {
-      whereClause.OR = [
-        { code: { contains: params.search, mode: 'insensitive' } },
-        { supplier: { companyName: { contains: params.search, mode: 'insensitive' } } },
-      ];
+      conditions.push({
+        OR: [
+          { code: { contains: params.search, mode: 'insensitive' } },
+          { supplier: { companyName: { contains: params.search, mode: 'insensitive' } } },
+          { supplier: { code: { contains: params.search, mode: 'insensitive' } } },
+          {
+            items: {
+              some: {
+                OR: [
+                  { product: { name: { contains: params.search, mode: 'insensitive' } } },
+                  { product: { sku: { contains: params.search, mode: 'insensitive' } } },
+                  { product: { supplierCode: { contains: params.search, mode: 'insensitive' } } },
+                ],
+              },
+            },
+          },
+        ],
+      });
+    }
+
+    if (conditions.length > 0) {
+      whereClause.AND = conditions;
     }
 
     const [total, invoices] = await Promise.all([
@@ -239,10 +323,10 @@ export async function getPurchaseInvoices(req: Request, res: Response, next: Nex
         include: {
           supplier: { select: { id: true, companyName: true, taxId: true, code: true } },
           items: {
-            include: { product: { select: { id: true, sku: true, name: true } } },
+            include: { product: { select: { id: true, sku: true, name: true, supplierCode: true } } },
           },
           payable: {
-            select: { id: true, balance: true, isSettled: true },
+            select: { id: true, balance: true, isSettled: true, dueDate: true },
           },
         },
         orderBy: { issueDate: 'desc' },
@@ -590,3 +674,99 @@ export async function registerSupplierPayment(req: AuthRequest, res: Response, n
     next(error);
   }
 }
+
+// ==========================================
+// 5. HISTORIAL DE COMPRAS POR PRODUCTO
+// ==========================================
+
+export async function getProductPurchaseHistory(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { productId } = req.params;
+
+    const product = await prisma.product.findUnique({
+      where: { id: productId },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        costPrice: true,
+        supplierCode: true,
+        unit: { select: { symbol: true } },
+      },
+    });
+
+    if (!product) {
+      res.status(404).json({ success: false, message: 'Producto no encontrado' });
+      return;
+    }
+
+    const items = await prisma.purchaseInvoiceItem.findMany({
+      where: { productId },
+      include: {
+        invoice: {
+          select: {
+            id: true,
+            code: true,
+            issueDate: true,
+            supplier: {
+              select: {
+                id: true,
+                code: true,
+                companyName: true,
+              },
+            },
+          },
+        },
+      },
+      orderBy: {
+        invoice: {
+          issueDate: 'desc',
+        },
+      },
+      take: 50,
+    });
+
+    // Formatear items con cálculo de variación vs compra previa
+    const history = items.map((item, index) => {
+      const nextItem = items[index + 1]; // compra cronológicamente anterior
+      let variationPct: number | null = null;
+      if (nextItem && Number(nextItem.unitCost) > 0) {
+        variationPct = ((Number(item.unitCost) - Number(nextItem.unitCost)) / Number(nextItem.unitCost)) * 100;
+      }
+
+      return {
+        id: item.id,
+        invoiceCode: item.invoice.code,
+        date: item.invoice.issueDate,
+        supplier: item.invoice.supplier,
+        quantity: item.quantity,
+        unitCost: Number(item.unitCost),
+        subtotal: Number(item.subtotal),
+        variationPct: variationPct !== null ? Number(variationPct.toFixed(2)) : null,
+      };
+    });
+
+    const totalQty = history.reduce((sum, h) => sum + h.quantity, 0);
+    const avgCost =
+      history.length > 0
+        ? history.reduce((sum, h) => sum + h.unitCost, 0) / history.length
+        : Number(product.costPrice);
+
+    res.json({
+      success: true,
+      data: {
+        product,
+        stats: {
+          totalPurchasesCount: history.length,
+          totalQtyPurchased: totalQty,
+          averageCost: Number(avgCost.toFixed(2)),
+          currentCost: Number(product.costPrice),
+        },
+        history,
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+

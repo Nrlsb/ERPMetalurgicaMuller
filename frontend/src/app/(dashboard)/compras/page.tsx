@@ -21,6 +21,7 @@ import {
   ArrowDownRight,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
+import { PurchasesSearchTab } from '@/components/compras/PurchasesSearchTab';
 
 // ==========================================
 // INTERFACES
@@ -41,6 +42,7 @@ interface Supplier {
 interface Product {
   id: string;
   sku: string;
+  supplierCode?: string;
   name: string;
   costPrice: number;
   currentStock: number;
@@ -50,7 +52,7 @@ interface Product {
 interface PurchaseItem {
   id?: string;
   productId: string;
-  product?: { name: string; sku: string };
+  product?: { name: string; sku: string; supplierCode?: string };
   quantity: number;
   unitCost: number;
   subtotal: number;
@@ -91,7 +93,7 @@ interface Payable {
 }
 
 export default function ComprasPage() {
-  const [activeTab, setActiveTab] = useState<'orders' | 'invoices' | 'suppliers' | 'payables'>('orders');
+  const [activeTab, setActiveTab] = useState<'search' | 'orders' | 'invoices' | 'suppliers' | 'payables'>('orders');
 
   // Data States
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
@@ -99,6 +101,7 @@ export default function ComprasPage() {
   const [invoices, setInvoices] = useState<PurchaseInvoice[]>([]);
   const [payables, setPayables] = useState<Payable[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
+  const [categories, setCategories] = useState<any[]>([]);
 
   // Loading & Search
   const [loading, setLoading] = useState(true);
@@ -172,12 +175,13 @@ export default function ComprasPage() {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [suppRes, orderRes, invRes, payRes, prodRes] = await Promise.all([
+      const [suppRes, orderRes, invRes, payRes, prodRes, catRes] = await Promise.all([
         fetchApi<Supplier[]>('/purchases/suppliers'),
         fetchApi<PurchaseOrder[]>('/purchases/orders'),
         fetchApi<PurchaseInvoice[]>('/purchases/invoices'),
         fetchApi<Payable[]>('/purchases/payables'),
         fetchApi<Product[]>('/inventory/products'),
+        fetchApi<any>('/inventory/categories'),
       ]);
 
       if (suppRes.success && suppRes.data) setSuppliers(suppRes.data);
@@ -185,6 +189,7 @@ export default function ComprasPage() {
       if (invRes.success && invRes.data) setInvoices(invRes.data);
       if (payRes.success && payRes.data) setPayables(payRes.data);
       if (prodRes.success && prodRes.data) setProducts(prodRes.data);
+      if (catRes.success && catRes.data) setCategories(catRes.data);
     } catch (e) {
       console.error('Error cargando compras:', e);
     } finally {
@@ -496,10 +501,22 @@ export default function ComprasPage() {
       </div>
 
       {/* Tabs Selector */}
-      <div className="flex items-center space-x-2 border-b border-slate-800 pb-2">
+      <div className="flex items-center space-x-2 border-b border-slate-800 pb-2 overflow-x-auto">
+        <button
+          onClick={() => setActiveTab('search')}
+          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all shrink-0 ${
+            activeTab === 'search'
+              ? 'bg-teal-500/20 text-teal-300 border border-teal-500/40 shadow-sm'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <Search className="w-4 h-4 text-teal-400" />
+          <span>Buscador (Proveedores & Compras)</span>
+        </button>
+
         <button
           onClick={() => setActiveTab('orders')}
-          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === 'orders'
               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -511,7 +528,7 @@ export default function ComprasPage() {
 
         <button
           onClick={() => setActiveTab('invoices')}
-          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === 'invoices'
               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -523,7 +540,7 @@ export default function ComprasPage() {
 
         <button
           onClick={() => setActiveTab('suppliers')}
-          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === 'suppliers'
               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -535,7 +552,7 @@ export default function ComprasPage() {
 
         <button
           onClick={() => setActiveTab('payables')}
-          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all ${
+          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all shrink-0 ${
             activeTab === 'payables'
               ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
               : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -545,6 +562,16 @@ export default function ComprasPage() {
           <span>Cuentas por Pagar ({payables.filter((p) => !p.isSettled).length})</span>
         </button>
       </div>
+
+      {/* ================= TAB 0: BUSCADOR AVANZADO ================= */}
+      {activeTab === 'search' && (
+        <PurchasesSearchTab
+          suppliers={suppliers}
+          invoices={invoices}
+          products={products}
+          categories={categories}
+        />
+      )}
 
       {/* ================= TAB 1: ÓRDENES DE COMPRA ================= */}
       {activeTab === 'orders' && (
@@ -847,7 +874,7 @@ export default function ComprasPage() {
                           <option value="">Seleccionar artículo...</option>
                           {products.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name} ({p.sku}) — Stock actual: {p.currentStock}
+                              {p.supplierCode ? `[Cód. Prov: ${p.supplierCode}] ` : ''}{p.name} ({p.sku}) — Stock actual: {p.currentStock}
                             </option>
                           ))}
                         </select>
@@ -1011,7 +1038,7 @@ export default function ComprasPage() {
                           <option value="">Seleccionar artículo...</option>
                           {products.map((p) => (
                             <option key={p.id} value={p.id}>
-                              {p.name} ({p.sku}) — Stock actual: {p.currentStock}
+                              {p.supplierCode ? `[Cód. Prov: ${p.supplierCode}] ` : ''}{p.name} ({p.sku}) — Stock actual: {p.currentStock}
                             </option>
                           ))}
                         </select>

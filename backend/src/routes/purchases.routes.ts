@@ -8,12 +8,16 @@ import {
   createPurchaseInvoice,
   getPayables,
   registerSupplierPayment,
+  getProductPurchaseHistory,
 } from '../controllers/purchases.controller';
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware';
 
 const router = Router();
 
 router.use(authenticate);
+
+// Historial de compras de producto (icono info en inventario)
+router.get('/products/:productId/history', authorizeRoles('ADMIN', 'COMPRAS', 'FINANZAS'), getProductPurchaseHistory);
 
 // Proveedores
 router.get('/suppliers', getSuppliers);

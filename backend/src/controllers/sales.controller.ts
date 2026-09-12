@@ -108,8 +108,13 @@ export async function getCustomerById(req: Request, res: Response, next: NextFun
       where: { id },
       include: {
         invoices: {
+          include: {
+            items: {
+              include: { product: { select: { id: true, sku: true, name: true } } },
+            },
+          },
           orderBy: { issueDate: 'desc' },
-          take: 10,
+          take: 100,
         },
         receivables: {
           where: { isSettled: false },
@@ -203,6 +208,11 @@ export async function getInvoices(req: Request, res: Response, next: NextFunctio
   try {
     const params = parsePaginationParams(req, 30);
     const whereClause: any = {};
+
+    const customerId = req.query.customerId as string | undefined;
+    if (customerId && customerId !== 'ALL') {
+      whereClause.customerId = customerId;
+    }
 
     if (params.search) {
       whereClause.OR = [

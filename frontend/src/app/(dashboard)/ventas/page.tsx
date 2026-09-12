@@ -36,6 +36,7 @@ import { QuoteModal } from '@/components/ventas/QuoteModal';
 import { CustomerModal } from '@/components/ventas/CustomerModal';
 import { ReceivablesView, Receivable } from '@/components/ventas/ReceivablesView';
 import { InvoicePrintView } from '@/components/ventas/InvoicePrintView';
+import { CustomerMovementsModal } from '@/components/ventas/CustomerMovementsModal';
 
 // ==========================================
 // INTERFACES
@@ -119,6 +120,7 @@ export default function VentasPage() {
   const [isQuoteModalOpen, setIsQuoteModalOpen] = useState(false);
   const [isCustomerModalOpen, setIsCustomerModalOpen] = useState(false);
   const [selectedDocForPrint, setSelectedDocForPrint] = useState<any | null>(null);
+  const [selectedCustomerIdForMovements, setSelectedCustomerIdForMovements] = useState<string | null>(null);
 
   // Carga de Datos desde API
   const loadData = useCallback(async () => {
@@ -407,66 +409,136 @@ export default function VentasPage() {
             <table className="w-full text-left text-sm text-slate-300">
               <thead className="bg-slate-800/80 text-xs uppercase text-slate-400 font-bold border-b border-slate-700">
                 <tr>
-                  <th className="p-4">Comprobante</th>
-                  <th className="p-4">Cliente</th>
-                  <th className="p-4">Fecha</th>
-                  <th className="p-4">Medio de Pago</th>
-                  <th className="p-4 text-right">Total</th>
-                  <th className="p-4 text-center">Estado</th>
-                  <th className="p-4 text-right">Acciones</th>
+                  <th className="p-3.5">Movimiento</th>
+                  <th className="p-3.5">Cliente</th>
+                  <th className="p-3.5">Fecha</th>
+                  <th className="p-3.5">Fecha Vto.</th>
+                  <th className="p-3.5">Productos</th>
+                  <th className="p-3.5 text-center">Cantidad</th>
+                  <th className="p-3.5">Medio de Pago</th>
+                  <th className="p-3.5 text-right">Descuento</th>
+                  <th className="p-3.5 text-right">Total</th>
+                  <th className="p-3.5 text-center">Estado</th>
+                  <th className="p-3.5 text-right">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
                 {filteredInvoices.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                    <td colSpan={11} className="p-8 text-center text-slate-500">
                       No se encontraron comprobantes de venta
                     </td>
                   </tr>
                 ) : (
-                  filteredInvoices.map((inv) => (
-                    <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
-                      <td className="p-4">
-                        <div className="font-mono text-xs font-bold text-blue-400">{inv.code}</div>
-                        <div className="text-[11px] text-slate-500">{inv.type.replace('_', ' ')}</div>
-                      </td>
-                      <td className="p-4">
-                        <div className="font-bold text-white">{inv.customer.name}</div>
-                        <div className="text-xs text-slate-400">{inv.customer.taxId || 'Consumidor Final'}</div>
-                      </td>
-                      <td className="p-4 text-xs text-slate-300">
-                        {new Date(inv.issueDate).toLocaleDateString('es-AR')}
-                      </td>
-                      <td className="p-4">
-                        <span className="text-xs font-semibold px-2 py-1 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
-                          {inv.paymentMethod}
-                        </span>
-                      </td>
-                      <td className="p-4 text-right font-black text-white">
-                        ${Number(inv.total).toLocaleString('es-AR')}
-                      </td>
-                      <td className="p-4 text-center">
-                        {inv.isPaid ? (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                            <CheckCircle2 className="w-3.5 h-3.5" /> Pagada
+                  filteredInvoices.map((inv) => {
+                    const totalUnits = inv.items?.reduce((sum: number, it: any) => sum + Number(it.quantity || 0), 0) || 0;
+                    const isOverdue = !inv.isPaid && inv.dueDate && new Date(inv.dueDate) < new Date();
+
+                    return (
+                      <tr key={inv.id} className="hover:bg-slate-800/40 transition-colors">
+                        {/* Movimiento */}
+                        <td className="p-3.5">
+                          <div className="font-mono text-xs font-bold text-blue-400">{inv.code}</div>
+                          <div className="text-[11px] text-slate-500 font-medium">{inv.type.replace('_', ' ')}</div>
+                        </td>
+
+                        {/* Cliente */}
+                        <td className="p-3.5">
+                          <div className="font-bold text-white text-xs">{inv.customer.name}</div>
+                          <div className="text-[11px] text-slate-400">{inv.customer.taxId || 'Consumidor Final'}</div>
+                        </td>
+
+                        {/* Fecha */}
+                        <td className="p-3.5 text-xs text-slate-300 whitespace-nowrap">
+                          {new Date(inv.issueDate).toLocaleDateString('es-AR')}
+                        </td>
+
+                        {/* Fecha de Vencimiento */}
+                        <td className="p-3.5 text-xs whitespace-nowrap">
+                          {inv.dueDate ? (
+                            <span className={`inline-flex items-center gap-1 font-medium ${isOverdue ? 'text-rose-400 font-bold' : 'text-slate-300'}`}>
+                              {isOverdue && <AlertCircle className="w-3 h-3 text-rose-400 shrink-0" />}
+                              {new Date(inv.dueDate).toLocaleDateString('es-AR')}
+                            </span>
+                          ) : (
+                            <span className="text-slate-500">—</span>
+                          )}
+                        </td>
+
+                        {/* Productos */}
+                        <td className="p-3.5 text-xs">
+                          {inv.items && inv.items.length > 0 ? (
+                            <div className="max-w-[180px] space-y-0.5">
+                              {inv.items.slice(0, 2).map((it: any, idx: number) => (
+                                <div key={idx} className="truncate text-slate-300 text-[11px]" title={it.product?.name}>
+                                  • {it.product?.name || 'Artículo'} <span className="text-slate-500">({it.quantity}u)</span>
+                                </div>
+                              ))}
+                              {inv.items.length > 2 && (
+                                <div className="text-[10px] text-sky-400 font-semibold">
+                                  +{inv.items.length - 2} productos más
+                                </div>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-slate-500 text-[11px]">Detalle en factura</span>
+                          )}
+                        </td>
+
+                        {/* Cantidad Total */}
+                        <td className="p-3.5 text-center font-bold text-slate-200 text-xs font-mono">
+                          {totalUnits > 0 ? totalUnits : '—'}
+                        </td>
+
+                        {/* Método de Pago */}
+                        <td className="p-3.5">
+                          <span className="text-xs font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700">
+                            {inv.paymentMethod}
                           </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                            <Clock className="w-3.5 h-3.5" /> Pendiente
-                          </span>
-                        )}
-                      </td>
-                      <td className="p-4 text-right">
-                        <button
-                          onClick={() => setSelectedDocForPrint(inv)}
-                          className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
-                          title="Imprimir / Ver Comprobante"
-                        >
-                          <Printer className="w-4 h-4 text-blue-400" />
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                        </td>
+
+                        {/* Descuento */}
+                        <td className="p-3.5 text-right font-mono text-xs text-slate-400">
+                          {Number(inv.discount) > 0 ? (
+                            <span className="text-amber-400 font-bold">
+                              -${Number(inv.discount).toLocaleString('es-AR', { minimumFractionDigits: 2 })}
+                            </span>
+                          ) : (
+                            '—'
+                          )}
+                        </td>
+
+                        {/* Total */}
+                        <td className="p-3.5 text-right font-black text-white text-xs font-mono">
+                          ${Number(inv.total).toLocaleString('es-AR')}
+                        </td>
+
+                        {/* Estado */}
+                        <td className="p-3.5 text-center">
+                          {inv.isPaid ? (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Pagada
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                              <Clock className="w-3.5 h-3.5" /> Pendiente
+                            </span>
+                          )}
+                        </td>
+
+                        {/* Acciones */}
+                        <td className="p-3.5 text-right">
+                          <button
+                            onClick={() => setSelectedDocForPrint(inv)}
+                            className="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors"
+                            title="Imprimir / Ver Comprobante"
+                          >
+                            <Printer className="w-4 h-4 text-blue-400" />
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -544,12 +616,13 @@ export default function VentasPage() {
                   <th className="p-4">Teléfono</th>
                   <th className="p-4 text-right">Saldo Deudor</th>
                   <th className="p-4 text-right">Límite Crédito</th>
+                  <th className="p-4 text-center">Acciones</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800">
                 {filteredCustomers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="p-8 text-center text-slate-500">
+                    <td colSpan={8} className="p-8 text-center text-slate-500">
                       No se encontraron clientes
                     </td>
                   </tr>
@@ -566,6 +639,16 @@ export default function VentasPage() {
                       </td>
                       <td className="p-4 text-right text-xs text-slate-400">
                         ${Number(cust.creditLimit).toLocaleString('es-AR')}
+                      </td>
+                      <td className="p-4 text-center">
+                        <button
+                          onClick={() => setSelectedCustomerIdForMovements(cust.id)}
+                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold transition-all hover:border-blue-500/40 hover:text-white"
+                          title="Ver detalle de facturación y movimientos del cliente"
+                        >
+                          <FileText className="w-3.5 h-3.5 text-blue-400" />
+                          <span>Movimientos</span>
+                        </button>
                       </td>
                     </tr>
                   ))
@@ -629,6 +712,13 @@ export default function VentasPage() {
       {selectedDocForPrint && (
         <InvoicePrintView invoice={selectedDocForPrint} onClose={() => setSelectedDocForPrint(null)} />
       )}
+
+      {/* Modal de Movimientos y Facturación de Cliente */}
+      <CustomerMovementsModal
+        isOpen={!!selectedCustomerIdForMovements}
+        customerId={selectedCustomerIdForMovements}
+        onClose={() => setSelectedCustomerIdForMovements(null)}
+      />
     </div>
   );
 }
