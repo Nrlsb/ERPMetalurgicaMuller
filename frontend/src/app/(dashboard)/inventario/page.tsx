@@ -42,6 +42,7 @@ import { useToast } from '@/context/ToastContext';
 import { useAuth } from '@/context/AuthContext';
 import { BarcodeScannerModal } from '@/components/inventario/BarcodeScannerModal';
 import { ProductPurchaseHistoryModal } from '@/components/inventario/ProductPurchaseHistoryModal';
+import { ProductImageUpload } from '@/components/inventario/ProductImageUpload';
 
 interface SupplierItem {
   id: string;
@@ -431,7 +432,7 @@ export default function InventarioPage() {
         supplierCode: formData.supplierCode.trim() || undefined,
         name: formData.name.trim(),
         description: formData.description.trim() || undefined,
-        imageUrl: formData.imageUrl.trim() || undefined,
+        imageUrl: formData.imageUrl.trim() ? formData.imageUrl.trim() : (isEditing ? null : undefined),
         location: formData.location.trim() || undefined,
         categoryId: formData.categoryId || undefined,
         subcategoryId: formData.subcategoryId || undefined,
@@ -924,12 +925,26 @@ export default function InventarioPage() {
                       </div>
                     </div>
 
-                    {/* Nombre y descripción */}
-                    <div>
-                      <h3 className="font-bold text-white text-base leading-snug">{p.name}</h3>
-                      {p.description && (
-                        <p className="text-xs text-slate-400 line-clamp-2 mt-0.5">{p.description}</p>
+                    {/* Nombre y descripción con miniatura */}
+                    <div className="flex items-start gap-3">
+                      {p.imageUrl && (
+                        <div className="w-12 h-12 rounded-xl bg-slate-950 border border-slate-700/80 overflow-hidden shrink-0 flex items-center justify-center p-0.5">
+                          <img
+                            src={p.imageUrl}
+                            alt={p.name}
+                            className="w-full h-full object-contain"
+                            onError={(e) => {
+                              (e.target as HTMLElement).style.display = 'none';
+                            }}
+                          />
+                        </div>
                       )}
+                      <div className="min-w-0 flex-1">
+                        <h3 className="font-bold text-white text-base leading-snug">{p.name}</h3>
+                        {p.description && (
+                          <p className="text-xs text-slate-400 line-clamp-2 mt-0.5">{p.description}</p>
+                        )}
+                      </div>
                     </div>
 
                     {/* Categoría, Subcategoría y Ubicación */}
@@ -1049,8 +1064,24 @@ export default function InventarioPage() {
                             )}
                           </td>
                           <td className="p-4">
-                            <div className="font-bold text-white">{p.name}</div>
-                            {p.description && <div className="text-xs text-slate-400 truncate max-w-xs">{p.description}</div>}
+                            <div className="flex items-center gap-3">
+                              {p.imageUrl && (
+                                <div className="w-10 h-10 rounded-lg bg-slate-950 border border-slate-700/80 overflow-hidden shrink-0 flex items-center justify-center p-0.5">
+                                  <img
+                                    src={p.imageUrl}
+                                    alt={p.name}
+                                    className="w-full h-full object-contain"
+                                    onError={(e) => {
+                                      (e.target as HTMLElement).style.display = 'none';
+                                    }}
+                                  />
+                                </div>
+                              )}
+                              <div className="min-w-0">
+                                <div className="font-bold text-white">{p.name}</div>
+                                {p.description && <div className="text-xs text-slate-400 truncate max-w-xs">{p.description}</div>}
+                              </div>
+                            </div>
                             <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
                               {p.location && (
                                 <div className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-300 text-[11px] font-medium">
@@ -1554,36 +1585,11 @@ export default function InventarioPage() {
                 </div>
 
                 {/* Imagen del Producto */}
-                <div>
-                  <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                    <Camera className="w-3.5 h-3.5 text-sky-400" />
-                    <span>Foto / Imagen del Producto (URL para reconocimiento visual)</span>
-                  </label>
-                  <div className="flex items-center gap-3">
-                    <input
-                      type="url"
-                      value={formData.imageUrl}
-                      onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
-                      placeholder="https://ejemplo.com/fotos/bomba-paleta.jpg"
-                      className="flex-1 bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono text-xs"
-                    />
-                    {formData.imageUrl && (
-                      <div className="w-11 h-11 rounded-xl bg-slate-950 border border-slate-700 overflow-hidden flex-shrink-0 flex items-center justify-center">
-                        <img
-                          src={formData.imageUrl}
-                          alt="Vista previa"
-                          className="w-full h-full object-contain"
-                          onError={(e) => {
-                            (e.target as HTMLElement).style.display = 'none';
-                          }}
-                        />
-                      </div>
-                    )}
-                  </div>
-                  <p className="text-[11px] text-slate-400 mt-1">
-                    Esta imagen se mostrará en tamaño gigante en el panel adaptado para que Gaspar identifique la pieza visualmente.
-                  </p>
-                </div>
+                <ProductImageUpload
+                  value={formData.imageUrl}
+                  onChange={(newUrl) => setFormData({ ...formData, imageUrl: newUrl })}
+                  helperText="Esta imagen se mostrará en tamaño gigante en el panel adaptado para que Gaspar identifique la pieza visualmente."
+                />
 
                 {/* Texto de Comunicación (Voz Tobii) / Descripción */}
                 <div>

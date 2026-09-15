@@ -42,9 +42,9 @@ app.use(
 // 3. Parser de Cookies (Firmadas con secreto)
 app.use(cookieParser(config.cookie.secret));
 
-// 4. Límite de tamaño de Payload (Prevenir ataques de sobrecarga)
-app.use(express.json({ limit: '1mb' }));
-app.use(express.urlencoded({ extended: true, limit: '1mb' }));
+// 4. Límite de tamaño de Payload (Prevenir ataques de sobrecarga y admitir imágenes Data URL)
+app.use(express.json({ limit: '10mb' }));
+app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 // 5. Logging de peticiones HTTP
 if (config.nodeEnv === 'development') {

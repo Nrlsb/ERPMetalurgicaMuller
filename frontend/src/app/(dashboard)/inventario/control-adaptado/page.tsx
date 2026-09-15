@@ -39,6 +39,7 @@ import { useAuth } from '@/context/AuthContext';
 import { accessibleAudio } from '@/lib/accessibleAudio';
 import { accessibleSpeech, WAREHOUSE_AAC_PHRASES, AACQuickPhrase } from '@/lib/accessibleSpeech';
 import DwellTarget from '@/components/accessibility/DwellTarget';
+import { ProductImageUpload } from '@/components/inventario/ProductImageUpload';
 
 interface Product {
   id: string;
@@ -1240,35 +1241,11 @@ export default function ControlAdaptadoPage() {
 
             <div className="space-y-4 my-2">
               {/* 1. Imagen del Producto */}
-              <div>
-                <label className="block text-sm font-bold text-slate-300 uppercase tracking-wider mb-2">
-                  URL de la Foto / Imagen del Producto:
-                </label>
-                <div className="flex items-center gap-3">
-                  <input
-                    type="url"
-                    value={editImageUrl}
-                    onChange={(e) => setEditImageUrl(e.target.value)}
-                    placeholder="https://ejemplo.com/fotos/repuesto.jpg"
-                    className="flex-1 bg-slate-950 border-2 border-slate-700 rounded-xl px-4 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-sky-500 font-mono"
-                  />
-                  {editImageUrl && (
-                    <div className="w-16 h-16 rounded-xl bg-slate-950 border-2 border-slate-700 overflow-hidden shrink-0 flex items-center justify-center">
-                      <img
-                        src={editImageUrl}
-                        alt="Vista previa"
-                        className="w-full h-full object-contain"
-                        onError={(e) => {
-                          (e.target as HTMLElement).style.display = 'none';
-                        }}
-                      />
-                    </div>
-                  )}
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  Pega un enlace directo de imagen (jpg/png/webp) para que se muestre en las tarjetas del control adaptado.
-                </p>
-              </div>
+              <ProductImageUpload
+                value={editImageUrl}
+                onChange={setEditImageUrl}
+                helperText="Sube una foto o pega un enlace para que se muestre en tamaño grande en las tarjetas del control adaptado de Gaspar."
+              />
 
               {/* 2. Frase de Comunicación (Voz Tobii) */}
               <div>
