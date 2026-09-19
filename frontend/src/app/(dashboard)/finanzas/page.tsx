@@ -20,8 +20,11 @@ import {
   DollarSign,
   TrendingDown,
   TrendingUp,
+  CreditCard,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
+import { CheckItem, CheckModal } from '@/components/finanzas/CheckModal';
+import { ChecksManagementView } from '@/components/finanzas/ChecksManagementView';
 
 // ==========================================
 // INTERFACES
@@ -87,7 +90,7 @@ interface BankTransaction {
 }
 
 export default function FinanzasPage() {
-  const [activeTab, setActiveTab] = useState<'flow' | 'registers' | 'expenses' | 'banks'>('flow');
+  const [activeTab, setActiveTab] = useState<'flow' | 'registers' | 'expenses' | 'banks' | 'checks'>('flow');
 
   // Data States
   const [cashRegisters, setCashRegisters] = useState<CashRegister[]>([]);
@@ -95,6 +98,7 @@ export default function FinanzasPage() {
   const [expenses, setExpenses] = useState<Expense[]>([]);
   const [categories, setCategories] = useState<ExpenseCategory[]>([]);
   const [bankAccounts, setBankAccounts] = useState<BankAccount[]>([]);
+  const [checks, setChecks] = useState<CheckItem[]>([]);
 
   // Loading & Search
   const [loading, setLoading] = useState(true);
@@ -106,6 +110,7 @@ export default function FinanzasPage() {
   const [isRegisterModalOpen, setIsRegisterModalOpen] = useState(false);
   const [selectedRegister, setSelectedRegister] = useState<CashRegister | null>(null);
   const [isBankModalOpen, setIsBankModalOpen] = useState(false);
+  const [isCheckModalOpen, setIsCheckModalOpen] = useState(false);
 
   // Form: Nuevo Gasto
   const [expenseForm, setExpenseForm] = useState({
@@ -152,12 +157,13 @@ export default function FinanzasPage() {
   const loadAllData = async () => {
     setLoading(true);
     try {
-      const [regRes, movRes, expRes, catRes, bankRes] = await Promise.all([
+      const [regRes, movRes, expRes, catRes, bankRes, checkRes] = await Promise.all([
         fetchApi<CashRegister[]>('/finance/cash-registers'),
         fetchApi<CashMovement[]>('/finance/cash-movements'),
         fetchApi<Expense[]>('/finance/expenses'),
         fetchApi<ExpenseCategory[]>('/finance/expenses/categories'),
         fetchApi<BankAccount[]>('/finance/bank-accounts'),
+        fetchApi<any>('/finance/checks'),
       ]);
 
       if (regRes.success && regRes.data) setCashRegisters(regRes.data);
@@ -165,6 +171,9 @@ export default function FinanzasPage() {
       if (expRes.success && expRes.data) setExpenses(expRes.data);
       if (catRes.success && catRes.data) setCategories(catRes.data);
       if (bankRes.success && bankRes.data) setBankAccounts(bankRes.data);
+      if (checkRes.success && checkRes.data) {
+        setChecks(Array.isArray(checkRes.data) ? checkRes.data : checkRes.data.items || []);
+      }
     } catch (e) {
       console.error('Error cargando finanzas:', e);
     } finally {
@@ -339,6 +348,18 @@ export default function FinanzasPage() {
   const totalLiquidFunds = totalCashInRegisters + totalBankBalance;
   const totalExpensesMonth = expenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
 
+  // Cálculos de cheques en cartera y semáforo
+  const checksInCartera = checks.filter((c) => c.status === 'CARTERA');
+  const totalChecksInCartera = checksInCartera.reduce((sum, c) => sum + Number(c.amount), 0);
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const checksReadyCount = checksInCartera.filter((c) => {
+    const pDate = new Date(c.paymentDate);
+    const checkDateOnly = new Date(pDate.getFullYear(), pDate.getMonth(), pDate.getDate());
+    const diffDays = Math.round((checkDateOnly.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+    return diffDays <= 0 && diffDays >= -30;
+  }).length;
+
   const getMovementBadge = (type: string) => {
     if (type.startsWith('INGRESO') || type === 'APORTE') {
       return { bg: 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30', sign: '+', icon: ArrowUpRight };
@@ -362,6 +383,13 @@ export default function FinanzasPage() {
 
         <div className="flex flex-wrap gap-2.5">
           <button
+            onClick={() => setIsCheckModalOpen(true)}
+            className="inline-flex items-center space-x-2 bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 font-semibold py-2.5 px-4 rounded-xl text-xs border border-emerald-500/40 transition-all shadow-sm shadow-emerald-500/10"
+          >
+            <CreditCard className="w-4 h-4 text-emerald-400" />
+            <span>Cargar Cheque</span>
+          </button>
+          <button
             onClick={() => setIsMovementModalOpen(true)}
             className="inline-flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold py-2.5 px-4 rounded-xl text-xs border border-slate-700 transition-all"
           >
@@ -379,7 +407,7 @@ export default function FinanzasPage() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3.5">
         <div className="glass-panel p-4 rounded-2xl border border-slate-800">
           <div className="flex items-center justify-between">
             <p className="text-xs text-slate-400 font-medium uppercase">Cajas Físicas</p>
@@ -413,6 +441,29 @@ export default function FinanzasPage() {
             ${totalLiquidFunds.toLocaleString('es-AR')} ARS
           </p>
           <p className="text-[11px] text-slate-500 mt-1">Cajas + Saldos Bancarios</p>
+        </div>
+
+        {/* KPI Cheques en Cartera */}
+        <div
+          onClick={() => setActiveTab('checks')}
+          className="glass-panel p-4 rounded-2xl border border-slate-800 cursor-pointer hover:border-emerald-500/50 transition-all relative overflow-hidden"
+        >
+          {checksReadyCount > 0 && (
+            <div className="absolute top-2.5 right-2.5 flex h-2.5 w-2.5">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2.5 w-2.5 bg-emerald-500"></span>
+            </div>
+          )}
+          <div className="flex items-center justify-between">
+            <p className="text-xs text-slate-400 font-medium uppercase">Cheques en Cartera</p>
+            <CreditCard className="w-4 h-4 text-emerald-400" />
+          </div>
+          <p className="text-xl font-bold text-white mt-1 font-mono">
+            ${totalChecksInCartera.toLocaleString('es-AR')}
+          </p>
+          <p className="text-[11px] text-emerald-400 mt-1">
+            {checksInCartera.length} pendientes {checksReadyCount > 0 ? `(${checksReadyCount} listos hoy)` : ''}
+          </p>
         </div>
 
         <div className="glass-panel p-4 rounded-2xl border border-slate-800">
@@ -475,6 +526,21 @@ export default function FinanzasPage() {
         >
           <Landmark className="w-4 h-4" />
           <span>Cuentas Bancarias ({bankAccounts.length})</span>
+        </button>
+
+        <button
+          onClick={() => setActiveTab('checks')}
+          className={`flex items-center gap-2 py-2 px-4 rounded-xl text-xs font-semibold transition-all relative ${
+            activeTab === 'checks'
+              ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+              : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+          }`}
+        >
+          <CreditCard className="w-4 h-4" />
+          <span>Cartera de Cheques ({checksInCartera.length})</span>
+          {checksReadyCount > 0 && (
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span>
+          )}
         </button>
       </div>
 
@@ -729,6 +795,17 @@ export default function FinanzasPage() {
             )}
           </div>
         </div>
+      )}
+
+      {/* ================= TAB 5: CARTERA DE CHEQUES ================= */}
+      {activeTab === 'checks' && (
+        <ChecksManagementView
+          checks={checks}
+          bankAccounts={bankAccounts}
+          cashRegisters={cashRegisters}
+          onRefresh={loadAllData}
+          onOpenCreateModal={() => setIsCheckModalOpen(true)}
+        />
       )}
 
       {/* ================= MODAL: REGISTRAR GASTO ================= */}
@@ -1154,6 +1231,15 @@ export default function FinanzasPage() {
             </form>
           </div>
         </div>
+      )}
+
+      {/* ================= MODAL: CARGAR CHEQUE ================= */}
+      {isCheckModalOpen && (
+        <CheckModal
+          isOpen={isCheckModalOpen}
+          onClose={() => setIsCheckModalOpen(false)}
+          onSuccess={loadAllData}
+        />
       )}
     </div>
   );

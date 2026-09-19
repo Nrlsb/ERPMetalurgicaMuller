@@ -380,6 +380,7 @@ model Customer {
   orders        SaleOrder[]
   invoices      SaleInvoice[]
   receivables   AccountReceivable[]
+  checks        Check[]
 
   @@map("customers")
 }
@@ -682,6 +683,7 @@ model CashRegister {
   updatedAt   DateTime       @updatedAt
 
   movements   CashMovement[]
+  checks      Check[]
 
   @@map("cash_registers")
 }
@@ -722,6 +724,7 @@ model BankAccount {
   updatedAt     DateTime          @updatedAt
 
   transactions  BankTransaction[]
+  checks        Check[]
 
   @@map("bank_accounts")
 }
@@ -764,4 +767,55 @@ model Expense {
   updatedAt   DateTime        @updatedAt
 
   @@map("expenses")
+}
+
+// ==========================================
+// 5. GESTIÓN DE CHEQUES Y CARTERA
+// ==========================================
+
+enum CheckType {
+  FISICO
+  ECHEQ
+}
+
+enum CheckStatus {
+  CARTERA     // En cartera, pendiente de cobro
+  DEPOSITADO  // Depositado en banco o cobrado en caja
+  ENDOSADO    // Entregado / endosado a un tercero o proveedor
+  RECHAZADO   // Rechazado / sin fondos
+  ANULADO     // Anulado
+}
+
+model Check {
+  id             String        @id @default(uuid())
+  checkNumber    String        // Número de cheque
+  bank           String        // Banco emisor
+  type           CheckType     @default(FISICO)
+  amount         Decimal       @db.Decimal(12, 2)
+  issuer         String        // Emisor / Librador (Razón social o nombre)
+  issuerTaxId    String?       // CUIT / CUIL del emisor
+  issueDate      DateTime      @default(now())
+  paymentDate    DateTime      // Fecha a partir de la cual es cobrable
+  status         CheckStatus   @default(CARTERA)
+  notes          String?
+
+  // Cliente del ERP asociado (opcional)
+  customerId     String?
+  customer       Customer?     @relation(fields: [customerId], references: [id])
+
+  // Destino de cobro / acreditación (opcional)
+  bankAccountId  String?
+  bankAccount    BankAccount?  @relation(fields: [bankAccountId], references: [id])
+  cashRegisterId String?
+  cashRegister   CashRegister? @relation(fields: [cashRegisterId], references: [id])
+  depositDate    DateTime?
+
+  // En caso de endoso a tercero / proveedor
+  endorsedTo     String?
+  endorsementDate DateTime?
+
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@map("checks")
 }

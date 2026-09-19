@@ -54,6 +54,42 @@ const bankTransactionSchema = z.object({
   reference: z.string().optional(),
 });
 
+const checkSchema = z.object({
+  checkNumber: z.string().min(1, 'El número de cheque es requerido'),
+  bank: z.string().min(2, 'El banco es requerido'),
+  type: z.enum(['FISICO', 'ECHEQ']).default('FISICO'),
+  amount: z.number().positive('El monto debe ser mayor a 0'),
+  issuer: z.string().min(2, 'El nombre o razón social del emisor es requerido'),
+  issuerTaxId: z.string().optional().nullable(),
+  issueDate: z.string().optional(),
+  paymentDate: z.string().min(1, 'La fecha de cobro es requerida'),
+  customerId: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+const updateCheckSchema = z.object({
+  checkNumber: z.string().min(1).optional(),
+  bank: z.string().min(2).optional(),
+  type: z.enum(['FISICO', 'ECHEQ']).optional(),
+  amount: z.number().positive().optional(),
+  issuer: z.string().min(2).optional(),
+  issuerTaxId: z.string().optional().nullable(),
+  issueDate: z.string().optional(),
+  paymentDate: z.string().optional(),
+  customerId: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
+const changeCheckStatusSchema = z.object({
+  status: z.enum(['CARTERA', 'DEPOSITADO', 'ENDOSADO', 'RECHAZADO', 'ANULADO']),
+  bankAccountId: z.string().optional().nullable(),
+  cashRegisterId: z.string().optional().nullable(),
+  depositDate: z.string().optional().nullable(),
+  endorsedTo: z.string().optional().nullable(),
+  endorsementDate: z.string().optional().nullable(),
+  notes: z.string().optional().nullable(),
+});
+
 // ==========================================
 // 1. CONTROL DE CAJAS (CASH REGISTERS)
 // ==========================================
@@ -473,6 +509,352 @@ export async function createBankTransaction(req: AuthRequest, res: Response, nex
     });
 
     res.status(201).json({ success: true, message: 'Transacción bancaria registrada', data: result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// ==========================================
+// 5. GESTIÓN DE CHEQUES Y CARTERA
+// ==========================================
+
+export async function getChecks(req: Request, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { status, search, type } = req.query;
+
+    const where: any = {};
+
+    if (status && typeof status === 'string' && status !== 'ALL') {
+      where.status = status;
+    }
+
+    if (type && typeof type === 'string' && (type === 'FISICO' || type === 'ECHEQ')) {
+      where.type = type;
+    }
+
+    if (search && typeof search === 'string' && search.trim() !== '') {
+      const q = search.trim();
+      where.OR = [
+        { checkNumber: { contains: q, mode: 'insensitive' } },
+        { bank: { contains: q, mode: 'insensitive' } },
+        { issuer: { contains: q, mode: 'insensitive' } },
+        { issuerTaxId: { contains: q, mode: 'insensitive' } },
+        { customer: { name: { contains: q, mode: 'insensitive' } } },
+      ];
+    }
+
+    const checks = await (prisma as any).check.findMany({
+      where,
+      include: {
+        customer: { select: { id: true, name: true, taxId: true } },
+        bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+        cashRegister: { select: { id: true, name: true } },
+      },
+      orderBy: [
+        { paymentDate: 'asc' },
+        { createdAt: 'desc' },
+      ],
+    });
+
+    // Calcular métricas para el semáforo y resumen
+    const now = new Date();
+    const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+
+    let totalCartera = 0;
+    let amountCartera = 0;
+    let readyToCashCount = 0;
+    let readyToCashAmount = 0;
+    let upcomingCount = 0;
+    let upcomingAmount = 0;
+    let deferredCount = 0;
+    let deferredAmount = 0;
+    let expiredCount = 0;
+    let expiredAmount = 0;
+
+    const checksWithMetrics = checks.map((c: any) => {
+      const pDate = new Date(c.paymentDate);
+      const checkDateOnly = new Date(pDate.getFullYear(), pDate.getMonth(), pDate.getDate());
+      const diffMs = checkDateOnly.getTime() - today.getTime();
+      const diffDays = Math.round(diffMs / (1000 * 60 * 60 * 24));
+
+      // Determinación de semáforo
+      let trafficLight: 'GREEN' | 'YELLOW' | 'BLUE' | 'RED' | 'SETTLED' = 'SETTLED';
+      let trafficLightLabel = '';
+
+      if (c.status === 'CARTERA') {
+        totalCartera++;
+        amountCartera += Number(c.amount);
+
+        if (diffDays > 7) {
+          trafficLight = 'BLUE';
+          trafficLightLabel = `Diferido (faltan ${diffDays} días)`;
+          deferredCount++;
+          deferredAmount += Number(c.amount);
+        } else if (diffDays >= 1 && diffDays <= 7) {
+          trafficLight = 'YELLOW';
+          trafficLightLabel = `Próximo (en ${diffDays} ${diffDays === 1 ? 'día' : 'días'})`;
+          upcomingCount++;
+          upcomingAmount += Number(c.amount);
+        } else if (diffDays <= 0 && diffDays >= -30) {
+          trafficLight = 'GREEN';
+          trafficLightLabel = diffDays === 0 ? '¡Habilitado para cobrar hoy!' : `Listo para cobrar (hace ${Math.abs(diffDays)} días)`;
+          readyToCashCount++;
+          readyToCashAmount += Number(c.amount);
+        } else {
+          trafficLight = 'RED';
+          trafficLightLabel = 'Vencido (+30 días sin cobrar)';
+          expiredCount++;
+          expiredAmount += Number(c.amount);
+        }
+      } else if (c.status === 'DEPOSITADO') {
+        trafficLight = 'SETTLED';
+        trafficLightLabel = 'Depositado / Cobrado';
+      } else if (c.status === 'ENDOSADO') {
+        trafficLight = 'SETTLED';
+        trafficLightLabel = `Endosado a ${c.endorsedTo || 'Tercero'}`;
+      } else if (c.status === 'RECHAZADO') {
+        trafficLight = 'RED';
+        trafficLightLabel = 'Rechazado';
+      } else if (c.status === 'ANULADO') {
+        trafficLight = 'SETTLED';
+        trafficLightLabel = 'Anulado';
+      }
+
+      return {
+        ...c,
+        diffDays,
+        trafficLight,
+        trafficLightLabel,
+      };
+    });
+
+    res.json({
+      success: true,
+      data: checksWithMetrics,
+      summary: {
+        totalCartera,
+        amountCartera,
+        readyToCash: { count: readyToCashCount, amount: readyToCashAmount },
+        upcoming: { count: upcomingCount, amount: upcomingAmount },
+        deferred: { count: deferredCount, amount: deferredAmount },
+        expired: { count: expiredCount, amount: expiredAmount },
+      },
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createCheck(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const data = checkSchema.parse(req.body);
+
+    const check = await (prisma as any).check.create({
+      data: {
+        checkNumber: data.checkNumber,
+        bank: data.bank,
+        type: data.type,
+        amount: data.amount,
+        issuer: data.issuer,
+        issuerTaxId: data.issuerTaxId || null,
+        issueDate: data.issueDate ? new Date(data.issueDate) : new Date(),
+        paymentDate: new Date(data.paymentDate),
+        customerId: data.customerId || null,
+        notes: data.notes || null,
+        status: 'CARTERA',
+      },
+      include: {
+        customer: { select: { id: true, name: true, taxId: true } },
+      },
+    });
+
+    await logSecurityEvent({
+      action: 'CHECK_CREATED',
+      resource: `Check #${check.checkNumber}`,
+      userId: req.user?.userId,
+      details: { checkId: check.id, amount: data.amount, bank: data.bank },
+    });
+
+    res.status(201).json({ success: true, message: 'Cheque registrado exitosamente', data: check });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateCheck(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const data = updateCheckSchema.parse(req.body);
+
+    const existing = await (prisma as any).check.findUnique({ where: { id } });
+    if (!existing) {
+      res.status(404).json({ success: false, message: 'Cheque no encontrado' });
+      return;
+    }
+
+    const updateData: any = {};
+    if (data.checkNumber !== undefined) updateData.checkNumber = data.checkNumber;
+    if (data.bank !== undefined) updateData.bank = data.bank;
+    if (data.type !== undefined) updateData.type = data.type;
+    if (data.amount !== undefined) updateData.amount = data.amount;
+    if (data.issuer !== undefined) updateData.issuer = data.issuer;
+    if (data.issuerTaxId !== undefined) updateData.issuerTaxId = data.issuerTaxId;
+    if (data.issueDate !== undefined) updateData.issueDate = new Date(data.issueDate);
+    if (data.paymentDate !== undefined) updateData.paymentDate = new Date(data.paymentDate);
+    if (data.customerId !== undefined) updateData.customerId = data.customerId;
+    if (data.notes !== undefined) updateData.notes = data.notes;
+
+    const updated = await (prisma as any).check.update({
+      where: { id },
+      data: updateData,
+      include: {
+        customer: { select: { id: true, name: true, taxId: true } },
+        bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+        cashRegister: { select: { id: true, name: true } },
+      },
+    });
+
+    res.json({ success: true, message: 'Cheque actualizado exitosamente', data: updated });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function changeCheckStatus(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+    const data = changeCheckStatusSchema.parse(req.body);
+
+    const check = await (prisma as any).check.findUnique({ where: { id } });
+    if (!check) {
+      res.status(404).json({ success: false, message: 'Cheque no encontrado' });
+      return;
+    }
+
+    const result = await prisma.$transaction(async (tx: any) => {
+      let updatePayload: any = {
+        status: data.status,
+      };
+
+      if (data.notes) {
+        updatePayload.notes = check.notes ? `${check.notes} | ${data.notes}` : data.notes;
+      }
+
+      if (data.status === 'DEPOSITADO') {
+        const depDate = data.depositDate ? new Date(data.depositDate) : new Date();
+        updatePayload.depositDate = depDate;
+
+        if (data.bankAccountId) {
+          const account = await tx.bankAccount.findUnique({ where: { id: data.bankAccountId } });
+          if (!account) throw new Error('Cuenta bancaria no encontrada');
+
+          updatePayload.bankAccountId = data.bankAccountId;
+
+          // Registrar transacción bancaria de crédito
+          await tx.bankTransaction.create({
+            data: {
+              bankAccountId: data.bankAccountId,
+              type: 'CREDITO',
+              amount: check.amount,
+              concept: `Acreditación Cheque #${check.checkNumber} (${check.bank})`,
+              reference: check.checkNumber,
+              date: depDate,
+            },
+          });
+
+          // Incrementar saldo de la cuenta bancaria
+          await tx.bankAccount.update({
+            where: { id: data.bankAccountId },
+            data: { balance: { increment: check.amount } },
+          });
+        } else if (data.cashRegisterId) {
+          const register = await tx.cashRegister.findUnique({ where: { id: data.cashRegisterId } });
+          if (!register) throw new Error('Caja no encontrada');
+          if (!register.isOpen) throw new Error('La caja seleccionada debe estar abierta');
+
+          updatePayload.cashRegisterId = data.cashRegisterId;
+
+          // Registrar ingreso en caja
+          await tx.cashMovement.create({
+            data: {
+              cashRegisterId: data.cashRegisterId,
+              type: 'INGRESO_OTRO',
+              amount: check.amount,
+              concept: `Cobro en ventanilla Cheque #${check.checkNumber} (${check.bank})`,
+              reference: check.checkNumber,
+              userId: req.user?.userId || null,
+            },
+          });
+
+          // Incrementar saldo de la caja
+          await tx.cashRegister.update({
+            where: { id: data.cashRegisterId },
+            data: { balance: { increment: check.amount } },
+          });
+        }
+      } else if (data.status === 'ENDOSADO') {
+        updatePayload.endorsedTo = data.endorsedTo || 'Tercero / Proveedor';
+        updatePayload.endorsementDate = data.endorsementDate ? new Date(data.endorsementDate) : new Date();
+      }
+
+      const updated = await tx.check.update({
+        where: { id },
+        data: updatePayload,
+        include: {
+          customer: { select: { id: true, name: true } },
+          bankAccount: { select: { id: true, bankName: true, accountNumber: true } },
+          cashRegister: { select: { id: true, name: true } },
+        },
+      });
+
+      return updated;
+    });
+
+    await logSecurityEvent({
+      action: 'CHECK_STATUS_CHANGED',
+      resource: `Check #${check.checkNumber}`,
+      userId: req.user?.userId,
+      details: { checkId: check.id, newStatus: data.status },
+    });
+
+    res.json({ success: true, message: `Estado del cheque actualizado a ${data.status}`, data: result });
+  } catch (error: any) {
+    if (error.message && (error.message.includes('Caja') || error.message.includes('Cuenta bancaria'))) {
+      res.status(400).json({ success: false, message: error.message });
+      return;
+    }
+    next(error);
+  }
+}
+
+export async function deleteCheck(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { id } = req.params;
+
+    const check = await (prisma as any).check.findUnique({ where: { id } });
+    if (!check) {
+      res.status(404).json({ success: false, message: 'Cheque no encontrado' });
+      return;
+    }
+
+    if (check.status === 'DEPOSITADO') {
+      res.status(400).json({
+        success: false,
+        message: 'No se puede eliminar un cheque ya depositado o cobrado. Se debe revertir su estado previamente.',
+      });
+      return;
+    }
+
+    await (prisma as any).check.delete({ where: { id } });
+
+    await logSecurityEvent({
+      action: 'CHECK_DELETED',
+      resource: `Check #${check.checkNumber}`,
+      userId: req.user?.userId,
+      details: { checkId: check.id },
+    });
+
+    res.json({ success: true, message: 'Cheque eliminado exitosamente' });
   } catch (error) {
     next(error);
   }
