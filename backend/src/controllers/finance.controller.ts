@@ -670,9 +670,10 @@ export async function createCheck(req: AuthRequest, res: Response, next: NextFun
 
     await logSecurityEvent({
       action: 'CHECK_CREATED',
-      resource: `Check #${check.checkNumber}`,
+      module: 'FINANZAS',
+      entityId: check.id,
       userId: req.user?.userId,
-      details: { checkId: check.id, amount: data.amount, bank: data.bank },
+      details: { checkNumber: check.checkNumber, amount: data.amount, bank: data.bank },
     });
 
     res.status(201).json({ success: true, message: 'Cheque registrado exitosamente', data: check });
@@ -812,9 +813,10 @@ export async function changeCheckStatus(req: AuthRequest, res: Response, next: N
 
     await logSecurityEvent({
       action: 'CHECK_STATUS_CHANGED',
-      resource: `Check #${check.checkNumber}`,
+      module: 'FINANZAS',
+      entityId: check.id,
       userId: req.user?.userId,
-      details: { checkId: check.id, newStatus: data.status },
+      details: { checkNumber: check.checkNumber, newStatus: data.status },
     });
 
     res.json({ success: true, message: `Estado del cheque actualizado a ${data.status}`, data: result });
@@ -849,9 +851,10 @@ export async function deleteCheck(req: AuthRequest, res: Response, next: NextFun
 
     await logSecurityEvent({
       action: 'CHECK_DELETED',
-      resource: `Check #${check.checkNumber}`,
+      module: 'FINANZAS',
+      entityId: check.id,
       userId: req.user?.userId,
-      details: { checkId: check.id },
+      details: { checkNumber: check.checkNumber },
     });
 
     res.json({ success: true, message: 'Cheque eliminado exitosamente' });
