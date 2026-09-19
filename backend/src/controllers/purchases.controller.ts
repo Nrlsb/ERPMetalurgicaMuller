@@ -5,6 +5,7 @@ import { AuthRequest } from '../middlewares/auth.middleware';
 import { logSecurityEvent } from '../lib/audit';
 import { parsePaginationParams, buildPaginatedResponse } from '../lib/pagination';
 import { generateNextCode } from '../lib/sequence';
+import { parseInvoicePdfBuffer } from '../services/invoice-parser.service';
 
 // ==========================================
 // VALIDACIONES ZOD
@@ -767,6 +768,38 @@ export async function getProductPurchaseHistory(req: Request, res: Response, nex
     });
   } catch (error) {
     next(error);
+  }
+}
+
+// ==========================================
+// 6. LECTURA & PARSEO AUTOMÁTICO DE FACTURA PDF
+// ==========================================
+
+export async function parseInvoicePdf(req: AuthRequest, res: Response, next: NextFunction): Promise<void> {
+  try {
+    const { pdfBase64 } = req.body;
+    if (!pdfBase64 || typeof pdfBase64 !== 'string') {
+      res.status(400).json({ success: false, message: 'Se requiere el archivo PDF en formato base64' });
+      return;
+    }
+
+    // Limpiar prefijo data URL si existe
+    const cleanBase64 = pdfBase64.replace(/^data:application\/pdf;base64,/, '').trim();
+    const buffer = Buffer.from(cleanBase64, 'base64');
+
+    const result = await parseInvoicePdfBuffer(buffer);
+
+    res.json({
+      success: true,
+      message: 'Factura procesada correctamente',
+      data: result,
+    });
+  } catch (error: any) {
+    console.error('Error parseando PDF de factura:', error);
+    res.status(500).json({
+      success: false,
+      message: error.message || 'Error al procesar el archivo PDF de la factura',
+    });
   }
 }
 

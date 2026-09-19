@@ -19,6 +19,9 @@ import {
   PackageCheck,
   DollarSign,
   ArrowDownRight,
+  Upload,
+  FileText,
+  RefreshCw,
 } from 'lucide-react';
 import { fetchApi } from '@/lib/api';
 import { PurchasesSearchTab } from '@/components/compras/PurchasesSearchTab';
@@ -170,6 +173,8 @@ export default function ComprasPage() {
 
   const [formError, setFormError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isParsingPdf, setIsParsingPdf] = useState(false);
+  const [pdfParseSuccess, setPdfParseSuccess] = useState<string | null>(null);
 
   // Cargar datos
   const loadAllData = async () => {
@@ -328,6 +333,7 @@ export default function ComprasPage() {
 
       if (res.success) {
         setIsInvoiceModalOpen(false);
+        setPdfParseSuccess(null);
         setInvoiceForm({
           supplierId: '',
           code: '',
@@ -345,6 +351,117 @@ export default function ComprasPage() {
       setFormError(err.message || 'Error de conexión');
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Carga y lectura inteligente de Facturas en PDF
+  const handlePdfUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    e.target.value = '';
+
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      setFormError('El archivo seleccionado debe ser un documento PDF');
+      return;
+    }
+
+    setIsParsingPdf(true);
+    setFormError(null);
+    setPdfParseSuccess(null);
+
+    try {
+      const reader = new FileReader();
+      reader.onerror = () => {
+        setFormError('Error al leer el archivo en el navegador');
+        setIsParsingPdf(false);
+      };
+
+      reader.onload = async () => {
+        try {
+          const base64 = reader.result as string;
+
+          const res = await fetchApi<any>('/purchases/parse-invoice-pdf', {
+            method: 'POST',
+            body: JSON.stringify({ pdfBase64: base64 }),
+          });
+
+          if (res.success && res.data) {
+            const parsed = res.data;
+
+            // 1. Detectar o seleccionar Proveedor
+            let selectedSupplierId = invoiceForm.supplierId;
+            if (parsed.supplierId) {
+              selectedSupplierId = parsed.supplierId;
+            } else if (parsed.supplierName) {
+              const found = suppliers.find((s) =>
+                s.companyName.toLowerCase().includes(parsed.supplierName.toLowerCase())
+              );
+              if (found) selectedSupplierId = found.id;
+            }
+
+            // 2. Mapear ítems detectados en la factura
+            const mappedItems: { productId: string; quantity: number; unitCost: number }[] = [];
+            let matchedCount = 0;
+
+            if (Array.isArray(parsed.items) && parsed.items.length > 0) {
+              for (const it of parsed.items) {
+                let pId = it.matchedProductId || '';
+
+                if (!pId && it.supplierCode) {
+                  const cleanCode = it.supplierCode.trim();
+                  const withoutZeros = cleanCode.replace(/^0+/, '');
+                  const localProd = products.find(
+                    (p) =>
+                      p.supplierCode === cleanCode ||
+                      p.supplierCode === withoutZeros ||
+                      p.sku.toLowerCase() === cleanCode.toLowerCase()
+                  );
+                  if (localProd) pId = localProd.id;
+                }
+
+                if (pId) matchedCount++;
+
+                mappedItems.push({
+                  productId: pId,
+                  quantity: it.quantity || 1,
+                  unitCost: it.unitCost || 0,
+                });
+              }
+            }
+
+            setInvoiceForm((prev) => ({
+              ...prev,
+              supplierId: selectedSupplierId || prev.supplierId,
+              code: parsed.invoiceCode || prev.code,
+              paymentMethod: parsed.paymentMethod || prev.paymentMethod,
+              dueDate: parsed.invoiceDate
+                ? new Date(new Date(parsed.invoiceDate).getTime() + 30 * 24 * 3600 * 1000)
+                    .toISOString()
+                    .split('T')[0]
+                : prev.dueDate,
+              items: mappedItems.length > 0 ? mappedItems : prev.items,
+            }));
+
+            const totalItems = parsed.items?.length || 0;
+            setPdfParseSuccess(
+              `Factura leída con éxito: N° ${parsed.invoiceCode || 'Detectada'}. ` +
+                `Se identificaron ${totalItems} artículo(s) (${matchedCount} vinculado(s) automáticamente por código de proveedor).`
+            );
+          } else {
+            setFormError(res.message || 'No se pudieron extraer datos válidos de la factura PDF');
+          }
+        } catch (apiErr: any) {
+          setFormError(apiErr.message || 'Error comunicándose con el servidor para leer el PDF');
+        } finally {
+          setIsParsingPdf(false);
+        }
+      };
+
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Error al procesar PDF:', err);
+      setFormError(err.message || 'Error al procesar el archivo PDF');
+      setIsParsingPdf(false);
     }
   };
 
@@ -968,7 +1085,65 @@ export default function ComprasPage() {
               </div>
             )}
 
+            {pdfParseSuccess && (
+              <div className="mb-4 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-xs flex items-center justify-between shadow-sm animate-fadeIn">
+                <div className="flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <span>{pdfParseSuccess}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setPdfParseSuccess(null)}
+                  className="p-1 text-emerald-400 hover:text-white rounded-lg hover:bg-emerald-500/20 transition-colors"
+                >
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            )}
+
             <form onSubmit={handleCreateInvoice} className="space-y-4">
+              {/* Sección de lectura rápida por PDF de Proveedor */}
+              <div className="bg-slate-900/80 border-2 border-dashed border-teal-500/30 hover:border-teal-500/60 rounded-2xl p-4 transition-all flex flex-col sm:flex-row items-center justify-between gap-3 shadow-inner">
+                <div className="flex items-center gap-3 text-left">
+                  <div className="w-10 h-10 rounded-xl bg-teal-500/10 border border-teal-500/20 flex items-center justify-center text-teal-400 shrink-0">
+                    <FileText className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-bold text-white flex items-center gap-2">
+                      <span>Cargar Factura PDF del Proveedor</span>
+                      <span className="text-[10px] px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-300 font-semibold border border-teal-500/30">
+                        Lectura Automática
+                      </span>
+                    </h4>
+                    <p className="text-[11px] text-slate-400 mt-0.5">
+                      Sube la factura para autocompletar proveedor, nro de factura, condición e ítems por código.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 shrink-0">
+                  <label className="cursor-pointer px-4 py-2 bg-teal-500/15 hover:bg-teal-500/25 border border-teal-500/40 text-teal-300 hover:text-white rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap shadow-sm active:scale-95">
+                    {isParsingPdf ? (
+                      <>
+                        <RefreshCw className="w-4 h-4 animate-spin text-teal-400" />
+                        <span>Leyendo Factura...</span>
+                      </>
+                    ) : (
+                      <>
+                        <Upload className="w-4 h-4 text-teal-400" />
+                        <span>Subir Factura PDF</span>
+                      </>
+                    )}
+                    <input
+                      type="file"
+                      accept="application/pdf,.pdf"
+                      disabled={isParsingPdf}
+                      onChange={handlePdfUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                 <div>
                   <label className="block text-xs font-semibold text-slate-300 mb-1">Proveedor *</label>
@@ -1033,9 +1208,15 @@ export default function ComprasPage() {
                           required
                           value={item.productId}
                           onChange={(e) => handleInvoiceItemChange(idx, 'productId', e.target.value)}
-                          className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none"
+                          className={`w-full border rounded-lg px-2.5 py-1.5 text-xs text-white focus:border-emerald-500 focus:outline-none transition-all ${
+                            !item.productId
+                              ? 'bg-amber-950/40 border-amber-500/60 text-amber-200 font-medium'
+                              : 'bg-slate-950 border-slate-700'
+                          }`}
                         >
-                          <option value="">Seleccionar artículo...</option>
+                          <option value="">
+                            {!item.productId ? '⚠️ Seleccionar artículo en catálogo...' : 'Seleccionar artículo...'}
+                          </option>
                           {products.map((p) => (
                             <option key={p.id} value={p.id}>
                               {p.supplierCode ? `[Cód. Prov: ${p.supplierCode}] ` : ''}{p.name} ({p.sku}) — Stock actual: {p.currentStock}

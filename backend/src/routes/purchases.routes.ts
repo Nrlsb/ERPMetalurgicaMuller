@@ -9,6 +9,7 @@ import {
   getPayables,
   registerSupplierPayment,
   getProductPurchaseHistory,
+  parseInvoicePdf,
 } from '../controllers/purchases.controller';
 import { authenticate, authorizeRoles } from '../middlewares/auth.middleware';
 
@@ -18,6 +19,9 @@ router.use(authenticate);
 
 // Historial de compras de producto (icono info en inventario)
 router.get('/products/:productId/history', authorizeRoles('ADMIN', 'COMPRAS', 'FINANZAS'), getProductPurchaseHistory);
+
+// Lectura y Parseo de Facturas de Proveedores en PDF
+router.post('/parse-invoice-pdf', authorizeRoles('ADMIN', 'COMPRAS', 'OPERADOR'), parseInvoicePdf);
 
 // Proveedores
 router.get('/suppliers', getSuppliers);
