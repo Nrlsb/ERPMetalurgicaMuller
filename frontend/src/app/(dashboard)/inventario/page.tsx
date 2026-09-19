@@ -892,6 +892,11 @@ export default function InventarioPage() {
                             {p.barcode}
                           </span>
                         )}
+                        {p.supplierCode && (
+                          <span className="font-mono text-[10px] text-purple-400 bg-purple-500/10 border border-purple-500/20 px-1.5 py-0.5 rounded-md">
+                            Prov: {p.supplierCode}
+                          </span>
+                        )}
                       </div>
 
                       <div className="flex items-center gap-1.5">
@@ -1427,7 +1432,7 @@ export default function InventarioPage() {
                   </h4>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                   <div>
                     <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
                       <Tag className="w-3.5 h-3.5 text-blue-400" />
@@ -1440,20 +1445,6 @@ export default function InventarioPage() {
                       placeholder="Ej. ART-0012"
                       className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-500/20 transition-all font-mono"
                       required
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
-                      <Building className="w-3.5 h-3.5 text-purple-400" />
-                      <span>Cód. Proveedor</span>
-                    </label>
-                    <input
-                      type="text"
-                      value={formData.supplierCode}
-                      onChange={(e) => setFormData({ ...formData, supplierCode: e.target.value })}
-                      placeholder="Ej. PROV-ART-88"
-                      className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all font-mono"
                     />
                   </div>
 
@@ -1860,34 +1851,54 @@ export default function InventarioPage() {
                   </p>
                 )}
 
-                {/* Selector Dropdown para vincular proveedor */}
-                <div>
-                  <select
-                    value=""
-                    onChange={(e) => {
-                      const selectedId = e.target.value;
-                      if (selectedId && !formData.supplierIds.includes(selectedId)) {
-                        setFormData({
-                          ...formData,
-                          supplierIds: [...formData.supplierIds, selectedId],
-                        });
-                      }
-                    }}
-                    className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
-                  >
-                    <option value="">
-                      {suppliers.length === 0
-                        ? 'No hay proveedores registrados aún en Compras'
-                        : '+ Seleccionar y vincular proveedor...'}
-                    </option>
-                    {suppliers
-                      .filter((s) => !formData.supplierIds.includes(s.id))
-                      .map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.code ? `[${s.code}] ` : ''}{s.companyName}
-                        </option>
-                      ))}
-                  </select>
+                {/* Selector Dropdown y Código de Proveedor */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Building className="w-3.5 h-3.5 text-emerald-400" />
+                      <span>Vincular Proveedor</span>
+                    </label>
+                    <select
+                      value=""
+                      onChange={(e) => {
+                        const selectedId = e.target.value;
+                        if (selectedId && !formData.supplierIds.includes(selectedId)) {
+                          setFormData({
+                            ...formData,
+                            supplierIds: [...formData.supplierIds, selectedId],
+                          });
+                        }
+                      }}
+                      className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-xs sm:text-sm text-white focus:outline-none focus:border-emerald-500 focus:ring-2 focus:ring-emerald-500/20 transition-all"
+                    >
+                      <option value="">
+                        {suppliers.length === 0
+                          ? 'No hay proveedores registrados aún en Compras'
+                          : '+ Seleccionar y vincular proveedor...'}
+                      </option>
+                      {suppliers
+                        .filter((s) => !formData.supplierIds.includes(s.id))
+                        .map((s) => (
+                          <option key={s.id} value={s.id}>
+                            {s.code ? `[${s.code}] ` : ''}{s.companyName}
+                          </option>
+                        ))}
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-bold text-slate-300 uppercase tracking-wider mb-1.5 flex items-center gap-1.5">
+                      <Tag className="w-3.5 h-3.5 text-purple-400" />
+                      <span>Código del Proveedor</span>
+                    </label>
+                    <input
+                      type="text"
+                      value={formData.supplierCode}
+                      onChange={(e) => setFormData({ ...formData, supplierCode: e.target.value })}
+                      placeholder="Ej. PROV-ART-88 o Ref. Catálogo"
+                      className="w-full bg-slate-900/90 border border-slate-700 hover:border-slate-600 rounded-xl px-3.5 py-2.5 text-sm text-white placeholder-slate-400 focus:outline-none focus:border-purple-500 focus:ring-2 focus:ring-purple-500/20 transition-all font-mono"
+                    />
+                  </div>
                 </div>
               </div>
 
